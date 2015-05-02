@@ -1,0 +1,2 @@
+# Spark reference implementation
+This repository contains the work for my literature survey. The result of this will be a reference implementation of RDDs based on [this paper](http://www.eecs.berkeley.edu/Pubs/TechRpts/2014/EECS-2014-12.html).
