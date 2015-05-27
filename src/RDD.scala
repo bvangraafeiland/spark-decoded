@@ -7,9 +7,9 @@ abstract class RDD[T] {
 
   def map[U](f: T => U): RDD[U] = new MappedRDD(this, f)
 
-  def filter(f: T => Boolean): RDD[T]
+  def filter(f: T => Boolean): RDD[T] = new FilteredRDD(this, f)
 
-  def union(other:RDD[T]): RDD[T]
+  def union(other: RDD[T]): RDD[T] = new UnionRDD(Seq(this, other))
 
 
   // Actions
@@ -18,5 +18,5 @@ abstract class RDD[T] {
 
   def collect(): Seq[T]
 
-  def reduce(f: (T,T) => T): T
+  def reduce(f: (T,T) => T): T = collect().reduce(f)
 }
