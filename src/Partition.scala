@@ -1,6 +1,12 @@
 /**
  * Created by Bastiaan on 26-05-2015.
  */
-class Partition {
+trait Partition extends Serializable{
+  /**
+   * Get the partition's index within its parent RDD
+   */
+  def index: Int
 
+  // A better default implementation of HashCode
+  override def hashCode(): Int = index
 }

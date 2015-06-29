@@ -1,15 +1,17 @@
 /**
  * Created by Bastiaan on 25-05-2015.
  */
-abstract class RDD[T] {
+abstract class RDD[T](deps: Seq[Dependency[_]]) {
+
+  def this(oneParent: RDD[_]) = this(Seq(new OneToOneDependency(oneParent)))
 
   // Representation
 
-  def partitions(): Seq[Partition] = ???
+  def partitions: Array[Partition]
 
-  def dependencies(): Seq[RDD] = ???
+  def dependencies: Seq[Dependency[_]] = deps
 
-  def iterator(p: Partition, parentIters: Seq[Iterator]): Iterator[T] = compute(p)
+//  def iterator(p: Partition, parentIters: Seq[Iterator]): Iterator[T] = compute(p)
 
   def compute(p: Partition): Iterator[T]
 
@@ -18,24 +20,39 @@ abstract class RDD[T] {
 
   // Transformations
 
-  def map[U](f: T => U): RDD[U] = new MappedRDD(this, iter => iter.map(f))
+  def map[U](f: T => U): RDD[U] = new MappedRDD[T,U](this, iter => iter.map(f))
 
-  def flatMap[U](f: T => Seq[U]) : RDD[U] = new MappedRDD(this, iter => iter.flatMap(f))
+  def flatMap[U](f: T => Seq[U]) : RDD[U] = new MappedRDD[T,U](this, iter => iter.flatMap(f))
 
-  def filter(f: T => Boolean): RDD[T] = new MappedRDD(this, iter => iter.filter(f))
+  def filter(f: T => Boolean): RDD[T] = new MappedRDD[T,T](this, iter => iter.filter(f))
 
   def union(other: RDD[T]): RDD[T] = new UnionRDD(Seq(this, other))
 
-
   // Actions
 
-  def count(): Long
+  def count(): Long = partitions.map(p => compute(p).size).sum
 
-  def collect(): Seq[T] = partitions().map(p => compute(p)).reduce((s1, s2) => s1.toSeq ++ s2.toSeq)
+  def collect(): Seq[T] = partitions.map(p => compute(p).toSeq).reduce((i1, i2) => i1 ++ i2)
 
   def reduce(f: (T,T) => T): T = collect().reduce(f)
 
   def first(): T = take(1).head
 
-  def take(n: Int): Seq[T] = collect().take(n)
+  def take(n: Int): Seq[T] = if (n == 0) Seq[T]() else {
+    val numPartitions = partitions.length
+
+    def takeFromPartitions(amount: Int, numPartitions: Int, currentPartitionIndex: Int, collected: Seq[T]): Seq[T] =
+      if (currentPartitionIndex == numPartitions)
+        collected
+
+      else {
+        val mergedResult = collected ++ compute(partitions(currentPartitionIndex)).take(amount)
+        if (mergedResult.size == collected.size + amount)
+          mergedResult
+        else
+          takeFromPartitions(amount - (mergedResult.size - collected.size), numPartitions, currentPartitionIndex + 1, mergedResult)
+      }
+
+    takeFromPartitions(n, numPartitions, 0, Seq())
+  }
 }

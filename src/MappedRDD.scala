@@ -1,9 +1,9 @@
 /**
  * Created by Bastiaan on 26-05-2015.
  */
-class MappedRDD[T,U](parent: RDD[T], f: Iterator[T] => Iterator[U]) extends RDD[U] {
+class MappedRDD[T,U](parent: RDD[T], f: Iterator[T] => Iterator[U]) extends RDD[U](parent) {
 
-  override def count(): Long = parent.count()
+  override def partitions: Array[Partition] = parent.partitions
 
-  override def collect(): Seq[U] = parent.collect().map(f)
+  override def compute(p: Partition): Iterator[U] = f(parent.compute(p))
 }
