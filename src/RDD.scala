@@ -1,7 +1,8 @@
 /**
  * Created by Bastiaan on 25-05-2015.
  */
-abstract class RDD[T](deps: Seq[Dependency[_]]) {
+
+abstract class RDD[T](context: Context, deps: Seq[Dependency[_]]) {
 
   def this(oneParent: RDD[_]) = this(Seq(new OneToOneDependency(oneParent)))
 
@@ -30,11 +31,32 @@ abstract class RDD[T](deps: Seq[Dependency[_]]) {
 
   // Actions
 
-  def count(): Long = partitions.map(p => compute(p).size).sum
+  def count(): Long = context.runJob(this, (iter: Iterator[T]) => iter.size).sum
 
-  def collect(): Seq[T] = partitions.map(p => compute(p).toSeq).reduce((i1, i2) => i1 ++ i2)
+  def collect(): Seq[T] = {
+    val results = context.runJob(this, (iter: Iterator[T]) => iter.toArray)
+    Array.concat(results: _*)
+  }
 
-  def reduce(f: (T,T) => T): T = collect().reduce(f)
+  def reduce(f: (T,T) => T): T = {
+    var result: Option[T] = None
+
+    val reducePartition = (iter: Iterator[T]) =>
+      if (iter.hasNext) Some(iter.reduce(f))
+      else None
+
+    val mergeResults = (index: Int, reducedPartition: Option[T]) => {
+      if (reducedPartition.isDefined)
+        result = result match {
+          case Some(value) => Some(f(reducedPartition.get, value))
+          case None => reducedPartition
+        }
+    }
+
+    context.runJob(this, reducePartition, mergeResults)
+
+    result.get
+  }
 
   def first(): T = take(1).head
 
@@ -54,5 +76,11 @@ abstract class RDD[T](deps: Seq[Dependency[_]]) {
       }
 
     takeFromPartitions(n, numPartitions, 0, Seq())
+  }
+}
+
+object RDD {
+  implicit def pairFunctions[K,V](rdd: RDD[(K,V)]): PairRDD[K,V] = {
+    new PairRDD(rdd)
   }
 }
