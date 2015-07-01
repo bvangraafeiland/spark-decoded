@@ -20,8 +20,7 @@ class OneToOneDependency[T](rdd: RDD[T]) extends NarrowDependency[T](rdd) {
   override def getParents(partitionId: Int): List[Int] = List(partitionId)
 }
 
-class RangeDependency[T](rdd: RDD[T], inStart: Int, outStart: Int, length: Int)
-  extends NarrowDependency[T](rdd) {
+class RangeDependency[T](rdd: RDD[T], inStart: Int, outStart: Int, length: Int) extends NarrowDependency[T](rdd) {
 
   override def getParents(partitionId: Int): List[Int] = {
     if (partitionId >= outStart && partitionId < outStart + length) {
@@ -30,4 +29,9 @@ class RangeDependency[T](rdd: RDD[T], inStart: Int, outStart: Int, length: Int)
       Nil
     }
   }
+}
+
+class ShuffleDependency[K,V,C](_rdd: RDD[(K,V)], val partitioner: Partitioner) extends Dependency[(K,V)] {
+
+  override def rdd: RDD[(K, V)] = _rdd
 }

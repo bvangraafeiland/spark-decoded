@@ -2,17 +2,19 @@
  * Created by Bastiaan on 25-05-2015.
  */
 
-abstract class RDD[T](context: Context, deps: Seq[Dependency[_]]) {
+abstract class RDD[T](val context: Context, deps: Seq[Dependency[_]]) {
 
-  def this(oneParent: RDD[_]) = this(Seq(new OneToOneDependency(oneParent)))
+  def this(oneParent: RDD[_]) = this(oneParent.context, Seq(new OneToOneDependency(oneParent)))
+
+  val partitioner: Option[Partitioner] = None
+
+  val id = context.newRddId()
 
   // Representation
 
   def partitions: Array[Partition]
 
   def dependencies: Seq[Dependency[_]] = deps
-
-//  def iterator(p: Partition, parentIters: Seq[Iterator]): Iterator[T] = compute(p)
 
   def compute(p: Partition): Iterator[T]
 

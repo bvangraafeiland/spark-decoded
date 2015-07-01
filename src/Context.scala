@@ -1,7 +1,13 @@
+import java.util.concurrent.atomic.AtomicInteger
+
 /**
  * Created by Bastiaan on 30-06-2015.
  */
 class Context {
+
+  private val nextRddId = new AtomicInteger(0)
+
+  def newRddId(): Int = nextRddId.getAndIncrement()
 
   def runJob[T,U](rdd: RDD[T], func: Iterator[T] => U, partitions: Seq[Int], resultHandler: (Int, U) => Unit) = {
     partitions.foreach(index => {
@@ -20,4 +26,6 @@ class Context {
   }
 
   def runJob[T,U](rdd: RDD[T], func: Iterator[T] => U) = runJob[T,U](rdd, func, 0 to rdd.partitions.length)
+
+  def textFile(path: String, numPartitions: Int = 2): RDD[String] = new FileRDD(this, path, numPartitions)
 }
