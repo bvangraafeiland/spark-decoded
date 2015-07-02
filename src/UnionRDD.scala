@@ -1,9 +1,10 @@
 import scala.collection.mutable.ArrayBuffer
+import scala.reflect.ClassTag
 
 /**
  * Created by bastiaan on 27-5-15.
  */
-class UnionRDD[T](rdds: Seq[RDD[T]]) extends RDD[T](Nil) {
+class UnionRDD[T: ClassTag](context: Context, rdds: Seq[RDD[T]]) extends RDD[T](context, Nil) {
 
   override def partitions: Array[Partition] = {
     val array = new Array[Partition](rdds.map(_.partitions.length).sum)

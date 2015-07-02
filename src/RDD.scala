@@ -1,8 +1,10 @@
+import scala.reflect.ClassTag
+
 /**
  * Created by Bastiaan on 25-05-2015.
  */
 
-abstract class RDD[T](val context: Context, deps: Seq[Dependency[_]]) {
+abstract class RDD[T: ClassTag](val context: Context, deps: Seq[Dependency[_]]) {
 
   def this(oneParent: RDD[_]) = this(oneParent.context, Seq(new OneToOneDependency(oneParent)))
 
@@ -18,18 +20,21 @@ abstract class RDD[T](val context: Context, deps: Seq[Dependency[_]]) {
 
   def compute(p: Partition): Iterator[T]
 
-  def preferredLocations(p: Partition): Seq[String] = ???
+  // distributed functionality
+//  def preferredLocations(p: Partition): Seq[String] = ???
 
 
   // Transformations
 
-  def map[U](f: T => U): RDD[U] = new MappedRDD[T,U](this, iter => iter.map(f))
+  def map[U: ClassTag](f: T => U): RDD[U] = new MappedRDD[T,U](this, iter => iter.map(f))
 
-  def flatMap[U](f: T => Seq[U]) : RDD[U] = new MappedRDD[T,U](this, iter => iter.flatMap(f))
+  def mapPartitions[U: ClassTag](f: Iterator[T] => Iterator[U]): RDD[U] = new MappedRDD[T,U](this, f)
+
+  def flatMap[U: ClassTag](f: T => Seq[U]) : RDD[U] = new MappedRDD[T,U](this, iter => iter.flatMap(f))
 
   def filter(f: T => Boolean): RDD[T] = new MappedRDD[T,T](this, iter => iter.filter(f))
 
-  def union(other: RDD[T]): RDD[T] = new UnionRDD(Seq(this, other))
+  def union(other: RDD[T]): RDD[T] = new UnionRDD(context, Seq(this, other))
 
   // Actions
 

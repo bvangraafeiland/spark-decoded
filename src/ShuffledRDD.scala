@@ -1,7 +1,7 @@
 /**
  * Created by Bastiaan on 01-07-2015.
  */
-class ShuffledRDD[K,V,C](parent: RDD[(K,V)], part: Partitioner) extends RDD[(K,C)](parent.context, Nil) {
+class ShuffledRDD[K,V,C](parent: RDD[(K,V)], part: Partitioner, aggregator: Option[Aggregator[K,V,C]] = None) extends RDD[(K,C)](parent.context, Nil) {
 
   override def partitions: Array[Partition] = Array.tabulate(part.numPartitions)(i => new ShuffledRDDPartition(i))
 

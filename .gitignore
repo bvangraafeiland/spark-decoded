@@ -18,6 +18,5 @@ project/plugins/project/
 
 # IntelliJ
 .idea/workspace.xml
-out/production/spark-literature-survey/sandbox.sc
 src/Main.scala
-src/sandbox.sc
+sandbox.sc
