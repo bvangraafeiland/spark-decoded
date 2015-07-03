@@ -9,4 +9,9 @@ trait Partition extends Serializable{
 
   // A better default implementation of HashCode
   override def hashCode(): Int = index
+
+  override def equals(obj: scala.Any): Boolean = obj match {
+    case p: Partition => p.index == index
+    case _ => false
+  }
 }
