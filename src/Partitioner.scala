@@ -8,6 +8,11 @@ abstract class Partitioner {
   def numPartitions: Int
 }
 
+object Partitioner {
+
+  val defaultPartitioner = new HashPartitioner(Context.defaultNumPartitions)
+}
+
 class HashPartitioner(partitionCount: Int) extends Partitioner {
 
   override def getPartition(key: Any): Int = key match {
