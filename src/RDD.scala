@@ -87,7 +87,11 @@ abstract class RDD[T: ClassTag](val context: Context, deps: Seq[Dependency[_]]) 
 }
 
 object RDD {
-  implicit def pairFunctions[K,V](rdd: RDD[(K,V)]): PairRDD[K,V] = {
+  implicit def rddToPairRdd[K,V](rdd: RDD[(K,V)]): PairRDD[K,V] = {
     new PairRDD(rdd)
+  }
+
+  implicit def rddToOrderedRdd[K: Ordering,V](rdd: RDD[(K,V)]): OrderedRDD[K,V] = {
+    new OrderedRDD(rdd)
   }
 }

@@ -38,3 +38,23 @@ class HashPartitioner(partitionCount: Int) extends Partitioner {
     rawMod + (if (rawMod < 0) mod else 0)
   }
 }
+
+/**
+ * Partitions key-value records in roughly same sized partitions.
+ *
+ * Note: takes the entire contents of the RDD, rather than just a sample.
+ */
+class RangePartitioner[K: Ordering, V](rdd: RDD[(K,V)], partitionCount: Int) extends Partitioner {
+
+  private val rangeBounds = {
+    if (partitionCount <= 1)
+      Array.empty
+    else {
+
+    }
+  }
+
+  override def getPartition(key: Any): Int = ???
+
+  override def numPartitions: Int = partitionCount
+}
