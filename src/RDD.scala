@@ -40,7 +40,7 @@ abstract class RDD[T: ClassTag](val context: Context, deps: Seq[Dependency[_]]) 
 
   def count(): Long = context.runJob(this, (iter: Iterator[T]) => iter.size).sum
 
-  def collect(): Seq[T] = {
+  def collect(): Array[T] = {
     val results = context.runJob(this, (iter: Iterator[T]) => iter.toArray)
     Array.concat(results: _*)
   }
