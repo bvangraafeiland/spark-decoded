@@ -1,3 +1,6 @@
+import scala.collection.mutable.ArrayBuffer
+import scala.reflect.ClassTag
+
 /**
  * Created by Bastiaan on 01-07-2015.
  */
@@ -44,7 +47,7 @@ class HashPartitioner(partitionCount: Int) extends Partitioner {
  *
  * Note: takes the entire contents of the RDD, rather than just a sample.
  */
-class RangePartitioner[K: Ordering, V](rdd: RDD[(K,V)], partitionCount: Int, val ascending: Boolean = true) extends Partitioner {
+class RangePartitioner[K: Ordering: ClassTag, V](partitionCount: Int, rdd: RDD[(K,V)], val ascending: Boolean = true) extends Partitioner {
 
   private val rangeBounds: Array[K] = {
     if (partitionCount <= 1)
@@ -54,11 +57,23 @@ class RangePartitioner[K: Ordering, V](rdd: RDD[(K,V)], partitionCount: Int, val
       if (numItems == 0)
         Array.empty
       else {
-
+        val candidates = ArrayBuffer.empty[(K,Float)]
+        sketched.foreach { case (n, keys) =>
+          val weight: Float = 1 / n
+          for (key <- keys)
+            candidates += ((key, weight))
+        }
+        determineBounds(candidates, partitionCount)
       }
     }
   }
 
+  /**
+   * Sketches the input RDD
+   *
+   * @param rdd the input RDD to sketch
+   * @return (total number of items in the RDD, array of (number of items in partition, items in partition))
+   */
   private def sketch(rdd: RDD[K]) = {
     val sketched = rdd.mapPartitions(iter => {
       val (content, n) = iteratorContentsAndSize(iter)
@@ -68,7 +83,7 @@ class RangePartitioner[K: Ordering, V](rdd: RDD[(K,V)], partitionCount: Int, val
     (numItems, sketched)
   }
 
-  private def iteratorContentsAndSize[T](iterator: Iterator[T]): (Array[T], Int) = {
+  private def iteratorContentsAndSize[T: ClassTag](iterator: Iterator[T]): (Array[T], Int) = {
     var count = 0
     var content = Seq[T]()
     while (iterator.hasNext) {
@@ -78,7 +93,47 @@ class RangePartitioner[K: Ordering, V](rdd: RDD[(K,V)], partitionCount: Int, val
     (content.toArray, count)
   }
 
-  override def getPartition(key: Any): Int = ???
+  private def determineBounds[K : Ordering : ClassTag](candidates: ArrayBuffer[(K, Float)], partitions: Int): Array[K] = {
+    val ordering = implicitly[Ordering[K]]
+    val ordered = candidates.sortBy(_._1)
+    val numCandidates = ordered.size
+    val sumWeights = ordered.map(_._2.toDouble).sum
+    val step = sumWeights / partitions
+    var cumWeight = 0.0
+    var target = step
+    val bounds = ArrayBuffer.empty[K]
+    var i = 0
+    var j = 0
+    var previousBound = Option.empty[K]
+    while ((i < numCandidates) && (j < partitions - 1)) {
+      val (key, weight) = ordered(i)
+      cumWeight += weight
+      if (cumWeight > target) {
+        // Skip duplicate values.
+        if (previousBound.isEmpty || ordering.gt(key, previousBound.get)) {
+          bounds += key
+          target += step
+          j += 1
+          previousBound = Some(key)
+        }
+      }
+      i += 1
+    }
+    bounds.toArray
+  }
+
+  override def getPartition(key: Any): Int = {
+    val k = key.asInstanceOf[K]
+    var partition = 0
+    val ordering = implicitly(Ordering[K])
+
+    // Naive search
+    while (partition < rangeBounds.length && ordering.gt(k, rangeBounds(partition))) {
+      partition += 1
+    }
+
+    partition
+  }
 
   override def numPartitions: Int = partitionCount
 

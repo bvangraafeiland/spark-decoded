@@ -91,7 +91,7 @@ object RDD {
     new PairRDD(rdd)
   }
 
-  implicit def rddToOrderedRdd[K: Ordering,V](rdd: RDD[(K,V)]): OrderedRDD[K,V] = {
+  implicit def rddToOrderedRdd[K: Ordering: ClassTag,V](rdd: RDD[(K,V)]): OrderedRDD[K,V] = {
     new OrderedRDD(rdd)
   }
 }

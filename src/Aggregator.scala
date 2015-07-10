@@ -12,7 +12,7 @@ class Aggregator[K,V,C] (createCombiner: V => C, mergeValue: (C,V) => C, mergeCo
       val key = pair._1
       val value = pair._2
       if (combiners contains key)
-        combiners.update(key, mergeValue(combiners.apply(key), value))
+        combiners.update(key, mergeValue(combiners(key), value))
       else
         combiners.update(key, createCombiner(value))
     })
