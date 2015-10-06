@@ -19,10 +19,16 @@ A traditional issue is fault tolerance. This is generally solved by replicating 
 
 A major selling point for RDDs is that they are very general, so any distributed system can be emulated.
 
+Formally, an RDD is defined by five properties:
+- A list of partitions
+- A function to compute a given partition
+- A list of dependencies on other RDDs
+- A partitioner
+
 ### Partitions
 A partition represents a subset of the data of an RDD. When running computations, the partitions are distributed among the available nodes in the cluster, after which each node computes only their partitions.
 
 ### Partitioners
-A partitioner assigns part of a dataset to a partition, based on that part's properties.
+A partitioner assigns elements of an RDD consisting of key-value pairs to a partition by mapping a key value to a valid partition ID.
 
 ## Operations
