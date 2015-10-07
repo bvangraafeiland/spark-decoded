@@ -21,9 +21,10 @@ A major selling point for RDDs is that they are very general, so any distributed
 
 Formally, an RDD is defined by five properties:
 - A list of partitions
-- A function to compute a given partition
+- A function to compute a given partition, returning it as an Iterator
 - A list of dependencies on other RDDs
-- A partitioner
+- A partitioner, an object that assigns data to partitions
+- A function that returns a list of preferred locations for a given partition, allowing faster access due to data locality
 
 ### Partitions
 A partition represents a subset of the data of an RDD. When running computations, the partitions are distributed among the available nodes in the cluster, after which each node computes only their partitions.
@@ -31,4 +32,8 @@ A partition represents a subset of the data of an RDD. When running computations
 ### Partitioners
 A partitioner assigns elements of an RDD consisting of key-value pairs to a partition by mapping a key value to a valid partition ID.
 
-## Operations
+## Concepts
+
+### Operations
+
+### Dependencies
