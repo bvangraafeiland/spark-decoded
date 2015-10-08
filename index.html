@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
+<head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -13,21 +13,53 @@
     <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
     <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
     <!--[if lt IE 9]>
-      <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
-      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+    <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
     <![endif]-->
-  </head>
-  <body>    
-    <header class="jumbotron">
-      <div class="container">
+</head>
+<body>
+<header class="jumbotron">
+    <div class="container">
         <h1>Spark Decoded</h1>
-      </div>
-    </header>
-    <main class="container">
-    
-    </main>
-    <!-- Include all compiled plugins (below), or include individual files as needed -->
-    <script src="js/vendors.js"></script>
-    <script src="js/main.js"></script>
-  </body>
+        <p>By Bastiaan van Graafeiland</p>
+    </div>
+</header>
+<main class="container">
+    <h2>Introduction</h2>
+    <p>Apache Spark is a cluster computing framework, designed for processing large amounts of data. It was created at the University of California, accompanied by <a href="http://www.eecs.berkeley.edu/Pubs/TechRpts/2014/EECS-2014-12.html">this paper</a>. Later, it was moved to the Apache Software Foundation. </p>
+
+    <p>Due to its impressive performance, it rapidly gained an audience, and several organizations use Spark for (parts of) their applications, including Amazon, eBay and Yahoo! (<a href="https://cwiki.apache.org/confluence/display/SPARK/Powered+By+Spark">source</a>).</p>
+    <p>In spite of all the attention Spark received, its inner workings are rather hard to grasp. For starters, this is due to the paper not explaining it very thoroughly. Furthermore, although it is open sourced, the core functionality is hidden away rather deep down the rabbit hole, in high-level components such as schedulers and wrapper classes. The documentation is focused on how to use it, rather than what happens under the hood. </p>
+    <p>The goal of this project is to provide a simplified implementation of Spark's core that is easily understood, along with proper documentation that is considerably shorter than the paper. This is achieved by digging through the source code (which contains plenty of comments) bit by bit and stripping out several layers of abstraction.</p>
+    <p>First, I will introduce the different kinds of components used in Spark. Then, in the next section, the interaction between the components will be explained.</p>
+    <h2>Components</h2>
+    <p>In this section, I will introduce the core components of Spark. </p>
+    <h3>Resilient Distributed Datasets</h3>
+    <p>Resilient Distributed Datasets, or RDDs, are the most important part of Spark. They are read-only wrappers around datasets that are created from Hadoop, text files, or any user-defined data source. By applying an operation to an RDD, a new RDD is formed rather than mutating the original one.</p>
+    <p>A traditional issue is fault tolerance. This is generally solved by replicating data or logging updates, while operations allow for fine-grained operations on mutable data state. RDDs on the other hand only provide coarse grained transformations, where the same operation is applied to the entire dataset. This way, fault tolerance is easily achieved by logging only the operations performed on the data. On data loss, only the lost partitions need to be recalculated. When a node fails, another node can take over its partitions.</p>
+    <p>A major selling point for RDDs is that they are very general, so any distributed system can be emulated.</p>
+    <p>Formally, an RDD is defined by five properties:</p>
+    <ul>
+        <li>A list of partitions</li>
+        <li>A function to compute a given partition, returning it as an Iterator</li>
+        <li>A list of dependencies on other RDDs</li>
+        <li>A partitioner, an object that assigns data to partitions</li>
+        <li>A function that returns a list of preferred locations for a given partition, allowing faster access due to data locality</li>
+    </ul>
+
+    <h3>Partitions</h3>
+    <p>A partition represents a subset of the data of an RDD. When running computations, the partitions are distributed among the available nodes in the cluster, after which each node computes only their partitions.</p>
+
+    <h3>Partitioners</h3>
+    <p>A partitioner assigns elements of an RDD consisting of key-value pairs to a partition by mapping a key value to a valid partition ID.</p>
+    <h2>Concepts</h2>
+
+    <h3>Operations</h3>
+
+    <h3>Dependencies</h3>
+</main>
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="js/vendors.js"></script>
+<script src="js/main.js"></script>
+</body>
 </html>
