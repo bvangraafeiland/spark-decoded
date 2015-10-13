@@ -5,8 +5,7 @@
  */
 /*! normalize.css v3.0.3 | MIT License | github.com/necolas/normalize.css */
 @import url(https://fonts.googleapis.com/css?family=Raleway);
-@import url(https://fonts.googleapis.com/css?family=Droid+Sans);
-@import url(https://fonts.googleapis.com/css?family=PT+Sans);
+@import url(https://fonts.googleapis.com/css?family=Droid+Serif);
 html {
   font-family: sans-serif;
   -ms-text-size-adjust: 100%;
@@ -1074,7 +1073,7 @@ body {
   font-size: 17px;
   line-height: 1.42857143;
   color: #333333;
-  background-color: #fff;
+  background-color: #ebf0ff;
 }
 input,
 button,
@@ -1119,7 +1118,7 @@ img {
 .img-thumbnail {
   padding: 4px;
   line-height: 1.42857143;
-  background-color: #fff;
+  background-color: #ebf0ff;
   border: 1px solid #ddd;
   border-radius: 4px;
   transition: all 0.2s ease-in-out;
@@ -1171,9 +1170,9 @@ h6,
 .h5,
 .h6 {
   font-family: inherit;
-  font-weight: 500;
+  font-weight: bold;
   line-height: 1.1;
-  color: inherit;
+  color: #222222;
 }
 h1 small,
 h2 small,
@@ -1566,24 +1565,28 @@ pre code {
   max-height: 340px;
   overflow-y: scroll;
 }
-.container {
+.container,
+main {
   margin-right: auto;
   margin-left: auto;
   padding-left: 15px;
   padding-right: 15px;
 }
 @media (min-width: 768px) {
-  .container {
+  .container,
+  main {
     width: 750px;
   }
 }
 @media (min-width: 992px) {
-  .container {
+  .container,
+  main {
     width: 970px;
   }
 }
 @media (min-width: 1200px) {
-  .container {
+  .container,
+  main {
     width: 1170px;
   }
 }
@@ -2277,7 +2280,7 @@ th {
   border-top: 2px solid #ddd;
 }
 .table .table {
-  background-color: #fff;
+  background-color: #ebf0ff;
 }
 .table-condensed > thead > tr > th,
 .table-condensed > tbody > tr > th,
@@ -4040,7 +4043,7 @@ select[multiple].input-group-sm > .input-group-btn > .btn {
 .nav-tabs > li.active > a:hover,
 .nav-tabs > li.active > a:focus {
   color: #555555;
-  background-color: #fff;
+  background-color: #ebf0ff;
   border: 1px solid #ddd;
   border-bottom-color: transparent;
   cursor: default;
@@ -4086,7 +4089,7 @@ select[multiple].input-group-sm > .input-group-btn > .btn {
   .nav-tabs.nav-justified > .active > a,
   .nav-tabs.nav-justified > .active > a:hover,
   .nav-tabs.nav-justified > .active > a:focus {
-    border-bottom-color: #fff;
+    border-bottom-color: #ebf0ff;
   }
 }
 .nav-pills > li {
@@ -4154,7 +4157,7 @@ select[multiple].input-group-sm > .input-group-btn > .btn {
   .nav-tabs-justified > .active > a,
   .nav-tabs-justified > .active > a:hover,
   .nav-tabs-justified > .active > a:focus {
-    border-bottom-color: #fff;
+    border-bottom-color: #ebf0ff;
   }
 }
 .tab-content > .tab-pane {
@@ -4959,7 +4962,7 @@ a.badge:focus {
   padding-top: 30px;
   padding-bottom: 30px;
   margin-bottom: 30px;
-  color: #FFF;
+  color: #ebf0ff;
   background-color: #eeeeee;
 }
 .jumbotron h1,
@@ -5001,7 +5004,7 @@ a.badge:focus {
   padding: 4px;
   margin-bottom: 24px;
   line-height: 1.42857143;
-  background-color: #fff;
+  background-color: #ebf0ff;
   border: 1px solid #ddd;
   border-radius: 4px;
   transition: border 0.2s ease-in-out;
@@ -6435,7 +6438,9 @@ button.close {
 .panel-body:before,
 .panel-body:after,
 .modal-footer:before,
-.modal-footer:after {
+.modal-footer:after,
+main:before,
+main:after {
   content: " ";
   display: table;
 }
@@ -6453,7 +6458,8 @@ button.close {
 .navbar-collapse:after,
 .pager:after,
 .panel-body:after,
-.modal-footer:after {
+.modal-footer:after,
+main:after {
   clear: both;
 }
 .center-block {
@@ -6805,11 +6811,18 @@ github.com style (c) Vasily Polovnyov <vast@whiteants.net>
   color: #aaa;
 }
 .jumbotron {
-  background: linear-gradient(to right, #ff720c, #114290);
+  background: linear-gradient(to right, #ff720c, #044CBF);
+  font-family: 'Droid Serif', Georgia, "Times New Roman", Times, serif;
 }
-h2 {
+section h1 {
   border-bottom: 1px solid;
   padding-bottom: 5px;
+}
+section h4 {
+  font-style: italic;
+}
+.hljs {
+  white-space: pre;
 }
 
 /*# sourceMappingURL=main.css.map */
