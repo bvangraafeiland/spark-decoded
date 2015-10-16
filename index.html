@@ -41,6 +41,7 @@
         <p>Resilient Distributed Datasets, or RDDs, are the most important part of Spark. They are read-only wrappers around datasets that are created from Hadoop, text files, or any user-defined data source. By applying an operation to an RDD, a new RDD is formed rather than mutating the original one.</p>
         <p>RDDs are based on the MapReduce model, and build upon this model. As a result, any MapReduce operations can be ported to RDDs. It turns out that MapReduce by itself can already emulate any kind of distributed computation, so this extends to RDDs as well. The reason for this is that local computation can be done by the maps, while communication is achieved through the reduce steps. This way, each time step of a distributed computation can be taken on by MapReduce. From this, the generality of RDDs follows.</p>
         <p>A traditional issue is fault tolerance. This is generally solved by replicating data or logging updates, while operations allow for fine-grained operations on mutable data state. RDDs on the other hand only provide coarse grained transformations, where the same operation is applied to the entire dataset. This way, fault tolerance is easily achieved by logging only the operations performed on the data. On data loss, only the lost partitions need to be recalculated. When a node fails, another node can take over its partitions.</p>
+        <p>Of course, recomputing time consuming datasets after faults can be expensive. RDDs can therefore be persisted to internal memory or disk, so in case of a failure further down the line, the data doesn't need to be recomputed. This is also useful if one RDD is used as a parent for several other child RDDs.</p>
         <p>Formally, an RDD is defined by five properties:</p>
         <ul>
             <li>A list of partitions</li>
@@ -52,14 +53,14 @@
 
         <h2>Partitions</h2>
         <p>A partition represents a subset of the data of an RDD. When an RDD's data is computed, the partitions are distributed among the available nodes in the cluster, after which each node computes only their partitions.</p>
-        <p>Internally, a partition only needs to contain an ID, and any other information required for computing the partition's data, so it is just a pointer.</p>
+        <p>Internally, a partition only needs to contain an ID, and any other information required for computing the partition's data, so it is just a pointer. A partition can be computed by calling the compute method on an RDD, resulting in an Iterator containing the requested data.</p>
 
         <h2>Dependencies</h2>
         <p>Each RDD stores a list of parent RDDs that it depends upon for computing its partitions. For "root" RDDs, constructed from an existing data source, this list is empty.</p>
 
         <h2>Partitioners</h2>
-        <p>A partitioner assigns elements of an RDD consisting of key-value pairs to a partition by mapping a key value to a valid partition ID.</p>
-        <p>A partition can be computed by calling the compute method on an RDD, resulting in an Iterator containing the requested data.</p>
+        <p>A partitioner assigns elements of an RDD consisting of key-value pairs to a partition by mapping a key value to a valid partition ID. Users can also implement their own custom partitioners.</p>
+
     </section>
 
     <section id="implementation">
