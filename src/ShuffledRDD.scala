@@ -11,7 +11,7 @@ class ShuffledRDD[K,V,C](parent: RDD[(K,V)], part: Partitioner, aggregator: Opti
     this
   }
 
-  override def partitions: Array[Partition] = Array.tabulate(part.numPartitions)(i => new ShuffledRDDPartition(i))
+  override def getPartitions: Array[Partition] = Array.tabulate(part.numPartitions)(i => new ShuffledRDDPartition(i))
 
   override def compute(p: Partition): Iterator[(K,C)] = {
     val theIterator = parent.partitions.map(p => parent.compute(p)).reduce(_ ++ _).filter(el => part.getPartition(el._1) == p.index)
@@ -29,7 +29,7 @@ class ShuffledRDD[K,V,C](parent: RDD[(K,V)], part: Partitioner, aggregator: Opti
 
   override val partitioner: Option[Partitioner] = Some(part)
 
-  override def dependencies: Seq[Dependency[_]] = List(new ShuffleDependency(parent, part))
+  override def getDependencies: Seq[Dependency[_]] = List(new ShuffleDependency(parent, part))
 }
 
 class ShuffledRDDPartition(ind: Int) extends Partition {

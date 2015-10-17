@@ -13,7 +13,7 @@ abstract class Partitioner {
 
 object Partitioner {
 
-  val defaultPartitioner = new HashPartitioner(Context.defaultNumPartitions)
+  val defaultPartitioner = new HashPartitioner(SparkContext.defaultNumPartitions)
 }
 
 class HashPartitioner(partitionCount: Int) extends Partitioner {

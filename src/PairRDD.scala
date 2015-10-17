@@ -4,7 +4,7 @@ import scala.reflect.ClassTag
 /**
  * Created by Bastiaan on 28-06-2015.
  */
-class PairRDD[K,V](rdd: RDD[(K,V)]) {
+class PairRDD[K: ClassTag, V: ClassTag](rdd: RDD[(K,V)]) {
 
   def combineByKey[C](createCombiner: V => C,
                       mergeValue: (C, V) => C,
@@ -34,11 +34,13 @@ class PairRDD[K,V](rdd: RDD[(K,V)]) {
 
   def mapValues[U](f: V => U): RDD[(K,U)] = new MappedRDD[(K,V),(K,U)](rdd, iter => iter.map(tuple => (tuple._1, f(tuple._2))), true)
 
-  def countByKey(): Map[K, Long] = rdd.mapValues(_ => 1L).reduceByKey(_ + _).collect().toMap
-
   def aggregateByKey[U: ClassTag](zeroValue: U, partitioner: Partitioner)(seqOp: (U, V) => U, comboOp: (U, U) => U): RDD[(K,U)] = combineByKey(v => seqOp(zeroValue, v), seqOp, comboOp, partitioner)
 
   def aggregateByKey[U: ClassTag](zeroValue: U)(seqOp: (U, V) => U, comboOp: (U, U) => U): RDD[(K,U)] = aggregateByKey(zeroValue, Partitioner.defaultPartitioner)(seqOp, comboOp)
+
+  // actions
+
+  def countByKey(): Map[K, Long] = rdd.mapValues(_ => 1L).reduceByKey(_ + _).collect().toMap
 
   /**
    * Return the list of values in the RDD for key `key`. This operation is done efficiently if the

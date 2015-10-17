@@ -5,7 +5,7 @@ import scala.reflect.ClassTag
 /**
  * Created by Bastiaan on 30-06-2015.
  */
-class Context {
+class SparkContext {
 
   private val nextRddId = new AtomicInteger(0)
 
@@ -29,11 +29,11 @@ class Context {
 
   def runJob[T,U: ClassTag](rdd: RDD[T], func: Iterator[T] => U): Array[U] = runJob[T,U](rdd, func, rdd.partitions.indices)
 
-  def textFile(path: String, numPartitions: Int = Context.defaultNumPartitions): RDD[String] = new FileRDD(this, path, numPartitions)
+  def textFile(path: String, numPartitions: Int = SparkContext.defaultNumPartitions): RDD[String] = new FileRDD(this, path, numPartitions)
 
-  def parallelize[T: ClassTag](seq: Seq[T], numPartitions: Int = Context.defaultNumPartitions): RDD[T] = new ParallelCollectionRDD(this, seq, numPartitions)
+  def parallelize[T: ClassTag](seq: Seq[T], numPartitions: Int = SparkContext.defaultNumPartitions): RDD[T] = new ParallelCollectionRDD(this, seq, numPartitions)
 }
 
-object Context {
+object SparkContext {
   val defaultNumPartitions = 2
 }

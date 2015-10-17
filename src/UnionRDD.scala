@@ -4,9 +4,9 @@ import scala.reflect.ClassTag
 /**
  * Created by bastiaan on 27-5-15.
  */
-class UnionRDD[T: ClassTag](context: Context, rdds: Seq[RDD[T]]) extends RDD[T](context, Nil) {
+class UnionRDD[T: ClassTag](context: SparkContext, rdds: Seq[RDD[T]]) extends RDD[T](context, Nil) {
 
-  override def partitions: Array[Partition] = {
+  override def getPartitions: Array[Partition] = {
     val array = new Array[Partition](rdds.map(_.partitions.length).sum)
     var pos = 0
     for ((rdd, rddIndex) <- rdds.zipWithIndex; split <- rdd.partitions) {
@@ -22,7 +22,7 @@ class UnionRDD[T: ClassTag](context: Context, rdds: Seq[RDD[T]]) extends RDD[T](
     rdds(partition.parentIndex).compute(partition.parentPartition)
   }
 
-  override def dependencies: Seq[Dependency[_]] = {
+  override def getDependencies: Seq[Dependency[_]] = {
     val deps = new ArrayBuffer[Dependency[_]]
     var pos = 0
     for (rdd <- rdds) {

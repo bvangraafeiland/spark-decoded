@@ -4,19 +4,31 @@ import scala.reflect.ClassTag
  * Created by Bastiaan on 25-05-2015.
  */
 
-abstract class RDD[T: ClassTag](val context: Context, deps: Seq[Dependency[_]]) {
+abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[_]]) {
 
   def this(oneParent: RDD[_]) = this(oneParent.context, Seq(new OneToOneDependency(oneParent)))
 
-  val partitioner: Option[Partitioner] = None
+  // Representation
 
   val id = context.newRddId()
 
-  // Representation
+  val partitioner: Option[Partitioner] = None
 
-  def partitions: Array[Partition]
+  private var _partitions: Array[Partition] = null
+  protected def getPartitions: Array[Partition]
+  final def partitions = {
+    if (_partitions == null)
+      _partitions = getPartitions
+    _partitions
+  }
 
-  def dependencies: Seq[Dependency[_]] = deps
+  private var _dependencies: Seq[Dependency[_]] = null
+  protected def getDependencies: Seq[Dependency[_]] = deps
+  final def dependencies = {
+    if (_dependencies != null)
+      _dependencies = getDependencies
+    _dependencies
+  }
 
   def compute(p: Partition): Iterator[T]
 
@@ -87,11 +99,7 @@ abstract class RDD[T: ClassTag](val context: Context, deps: Seq[Dependency[_]]) 
 }
 
 object RDD {
-  implicit def rddToPairRdd[K,V](rdd: RDD[(K,V)]): PairRDD[K,V] = {
-    new PairRDD(rdd)
-  }
+  implicit def rddToPairRdd[K: ClassTag, V: ClassTag](rdd: RDD[(K,V)]): PairRDD[K,V] = new PairRDD(rdd)
 
-  implicit def rddToOrderedRdd[K: Ordering: ClassTag,V](rdd: RDD[(K,V)]): OrderedRDD[K,V] = {
-    new OrderedRDD(rdd)
-  }
+  implicit def rddToOrderedRdd[K: Ordering: ClassTag,V](rdd: RDD[(K,V)]): OrderedRDD[K,V] = new OrderedRDD(rdd)
 }

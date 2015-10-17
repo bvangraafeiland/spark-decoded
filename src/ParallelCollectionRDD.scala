@@ -3,9 +3,9 @@ import scala.reflect.ClassTag
 /**
  * Created by Bastiaan on 04-07-2015.
  */
-class ParallelCollectionRDD[T: ClassTag](context: Context, data: Seq[T], numPartitions: Int) extends RDD[T](context, Nil) {
+class ParallelCollectionRDD[T: ClassTag](context: SparkContext, data: Seq[T], numPartitions: Int) extends RDD[T](context, Nil) {
 
-  override def partitions: Array[Partition] = {
+  override def getPartitions: Array[Partition] = {
     val dataArray = data.toArray // better performance
     val totalLength = dataArray.length
     (0 until numPartitions).map(index => {
