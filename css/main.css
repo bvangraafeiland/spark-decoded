@@ -6811,7 +6811,7 @@ github.com style (c) Vasily Polovnyov <vast@whiteants.net>
   color: #aaa;
 }
 .jumbotron {
-  background: linear-gradient(to bottom right, #84FF00, #044CBF);
+  background: linear-gradient(to bottom right, #84FF00, #044CBF 85%);
   font-family: 'Droid Serif', Georgia, "Times New Roman", Times, serif;
 }
 section h1 {

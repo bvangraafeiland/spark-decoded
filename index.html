@@ -53,7 +53,7 @@
 
         <h2>Partitions</h2>
         <p>A partition represents a subset of the data of an RDD. When an RDD's data is computed, the partitions are distributed among the available nodes in the cluster, after which each node computes only their partitions.</p>
-        <p>Internally, a partition only needs to contain an ID, and any other information required for computing the partition's data, so it is just a pointer. A partition can be computed by calling the compute method on an RDD, resulting in an Iterator containing the requested data.</p>
+        <p>Internally, a partition only needs to contain an ID, so at its base, it is just a wrapper. Specific partition classes may also contain additional data that is needed for computation. A partition can be computed by calling the compute method on an RDD and passing the partition, resulting in an Iterator containing the requested data.</p>
 
         <h2>Dependencies</h2>
         <p>Each RDD stores a list of parent RDDs that it depends upon for computing its partitions. For "root" RDDs, constructed from an existing data source, this list is empty.</p>
@@ -66,8 +66,17 @@
     <section id="implementation">
         <h1>Implementation</h1>
 
-        <h2>Obtaining RDDs from data sources</h2>
-        <p>To get an initial RDD, an existing data source can be used. This can be a file on the file system, or a <code>Seq</code> that has been computed already.</p>
+        <h2>Obtaining RDDs from existing data sources</h2>
+        <p>To get an initial RDD, an existing data source can be used. This can be a file on the file system, or a <code>Seq</code> that has been computed already by some other means.</p>
+
+        <h3>Computed sequence</h3>
+        <p>A <code>ParallelCollectionRDD</code> is used for <code>Seq</code> input:</p>
+        <pre><code class="scala">def parallelize[T](seq: Seq[T], numSlices: Int): RDD[T] = new ParallelCollectionRDD[T](this, seq, numSlices)</code></pre>
+        <p>The dataset is then split into <code>numSlices</code> partitions of equal size. The partition class used, <code>ParallelCollectionPartition</code>, differs from the usual partition in that it contains a reference to the actual data, rather than just being a wrapper around the ID. From this, the following class signature follows:</p>
+        <pre><code class="scala">class ParallelCollectionPartition[T](val rddId: Int, partitionId: Int, values: Seq[T]) extends Partition </code></pre>
+        <p>Now, to compute a partition, all that is needed is to convert its <code>values</code> to an iterator.</p>
+
+        <h3>File system</h3>
 
         <h2>Transformations</h2>
         <p>When a transformation is applied to an RDD, a new RDD will be returned rather than modifying the original one, allowing for immutability. Upon applying the transformation, nothing is yet computed. To illustrate, I will explain some transformations that are available.
