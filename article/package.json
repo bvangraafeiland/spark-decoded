@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "dependencies": {
+    "bootstrap": "^3.3.5",
+    "gulp": "^3.9.0",
+    "highlight.js": "^8.8.0",
+    "laravel-elixir": "^3.3.1"
+  }
+}

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <title>Spark Decoded</title>
+
+    <!-- Bootstrap -->
+    <link href="css/main.css" rel="stylesheet">
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+    <script src="//oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+    <script src="//oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+</head>
+<body>
+<header class="jumbotron" role="banner">
+    <div class="container text-center">
+        <h1>Spark Decoded</h1>
+        <p class="small"><em>Bastiaan van Graafeiland</em></p>
+    </div>
+</header>
+<main>
+    <section id="introduction">
+        <h1>Introduction</h1>
+        <p>Apache Spark is a cluster computing framework, designed for processing large amounts of data. It was created at the University of California, accompanied by <a href="http://www.eecs.berkeley.edu/Pubs/TechRpts/2014/EECS-2014-12.html">this paper</a>. Later, it was moved to the Apache Software Foundation.</p>
+        <p>Due to its impressive performance, it rapidly gained an audience, and several organizations use Spark for (parts of) their applications, including Amazon, eBay and Yahoo! (<a href="https://cwiki.apache.org/confluence/display/SPARK/Powered+By+Spark">source</a>).</p>
+        <p>In spite of all the attention Spark received, its inner workings are still hard to grasp. For starters, this is due to the paper not explaining it very thoroughly. Furthermore, although it is open sourced, the core functionality is hidden away rather deep down the rabbit hole, in high-level components such as schedulers and wrapper classes. The documentation is focused on how to use it, rather than what happens under the hood. </p>
+        <p>The goal of this project is to provide a simplified implementation of Spark's core that is easily understood, along with proper documentation that is considerably shorter than the paper. Unless indicated otherwise, code fragments in this article are taken from my own implementation.</p>
+        <p>First, I will introduce some concepts that are part of Spark. Then in the next section, implementation details are explained.</p>
+    </section>
+
+    <section id="concepts">
+        <h1>Concepts</h1>
+
+        <h2>Resilient Distributed Datasets</h2>
+        <p>Resilient Distributed Datasets, or RDDs, are the most important part of Spark. They are read-only wrappers around datasets that are created from Hadoop, text files, or any user-defined data source. By applying an operation to an RDD, a new RDD is formed rather than mutating the original one.</p>
+        <p>RDDs are based on the MapReduce model, and build upon this model. As a result, any MapReduce operations can be ported to RDDs. It turns out that MapReduce by itself can already emulate any kind of distributed computation, so this extends to RDDs as well. The reason for this is that local computation can be done by the maps, while communication is achieved through the reduce steps. This way, each time step of a distributed computation can be taken on by MapReduce. From this, the generality of RDDs follows.</p>
+        <p>A traditional issue is fault tolerance. This is generally solved by replicating data or logging updates, while operations allow for fine-grained operations on mutable data state. RDDs on the other hand only provide coarse grained transformations, where the same operation is applied to the entire dataset. This way, fault tolerance is easily achieved by logging only the operations performed on the data. On data loss, only the lost partitions need to be recalculated. When a node fails, another node can take over its partitions.</p>
+        <p>Of course, recomputing time consuming datasets after faults can be expensive. RDDs can therefore be persisted to internal memory or disk, so in case of a failure further down the line, the data doesn't need to be recomputed. This is also useful if one RDD is used as a parent for several other child RDDs.</p>
+        <p>Formally, an RDD is defined by five properties:</p>
+        <ul>
+            <li>A list of partitions</li>
+            <li>A function to compute a given partition</li>
+            <li>A list of dependencies on other RDDs</li>
+            <li>A partitioner, an object that assigns data to partitions</li>
+            <li>A function that returns a list of preferred locations for a given partition, allowing faster access due to data locality</li>
+        </ul>
+
+        <h2>Partitions</h2>
+        <p>A partition represents a subset of the data of an RDD. When an RDD's data is computed, the partitions are distributed among the available nodes in the cluster, after which each node computes only their partitions.</p>
+        <p>Internally, a partition only needs to contain an ID, so at its base, it is just a wrapper. Specific partition classes may also contain additional data that is needed for computation. A partition can be computed by calling the compute method on an RDD and passing the partition, resulting in an Iterator containing the requested data.</p>
+
+        <h2>Dependencies</h2>
+        <p>Each RDD stores a list of parent RDDs that it depends upon for computing its partitions. For "root" RDDs, constructed from an existing data source, this list is empty.</p>
+
+        <h2>Partitioners</h2>
+        <p>A partitioner assigns elements of an RDD consisting of key-value pairs to a partition by mapping a key value to a valid partition ID. Users can also implement their own custom partitioners.</p>
+
+    </section>
+
+    <section id="implementation">
+        <h1>Implementation</h1>
+
+        <h2>Obtaining RDDs from existing data sources</h2>
+        <p>To get an initial RDD, an existing data source can be used. This can be a file on the file system, or a <code>Seq</code> that has been computed already by some other means.</p>
+
+        <h3>Computed sequence</h3>
+        <p>A <code>ParallelCollectionRDD</code> is used for <code>Seq</code> input:</p>
+        <pre><code class="scala">def parallelize[T](seq: Seq[T], numSlices: Int): RDD[T] = new ParallelCollectionRDD[T](this, seq, numSlices)</code></pre>
+        <p>The dataset is then split into <code>numSlices</code> partitions of equal size. The partition class used, <code>ParallelCollectionPartition</code>, differs from the usual partition in that it contains a reference to the actual data, rather than just being a wrapper around the ID. From this, the following class signature follows:</p>
+        <pre><code class="scala">class ParallelCollectionPartition[T](val rddId: Int, partitionId: Int, values: Seq[T]) extends Partition </code></pre>
+        <p>Now, to compute a partition, all that is needed is to convert its <code>values</code> to an iterator.</p>
+
+        <h3>File system</h3>
+
+        <h2>Transformations</h2>
+        <p>When a transformation is applied to an RDD, a new RDD will be returned rather than modifying the original one, allowing for immutability. Upon applying the transformation, nothing is yet computed. To illustrate, I will explain some transformations that are available.
+        <h3>Union</h3>
+        <pre><code class="scala">def union(other: RDD[T]): RDD[T] = new UnionRDD(context, Seq(this, other))</code></pre>
+        <p>As you can see, this just creates a new <code>UnionRDD</code> instance and passes both RDDs to it.</p>
+        <h3>Map</h3>
+        <pre><code class="scala">def map[U](f: T => U): RDD[U] = new MappedRDD[T,U](this, iter => iter.map(f))</code></pre>
+        <h3>Filter</h3>
+        <pre><code class="scala">def filter(f: T => Boolean): RDD[T] = new MappedRDD[T,T](this, iter => iter.filter(f))</code></pre>
+
+        <h2>Actions</h2>
+        <p>Unlike transformations, an action on an RDD will actually compute (a subset of) its partitions, by applying the stored transformations to the raw data of the root RDD.</p>
+        <p>The implementation starts at the RDDs themselves, and ends up in the <code>SparkContext</code> class. In Spark, this class delegates calls to a scheduler, which will then balance the load over the nodes in the cluster. However, this logic is spread over many different classes and functions, to allow for proper delegation. For easier explaining, I have implemented the logic in the <code>SparkContext</code> class directly.</p>
+
+        <h3>SparkContext</h3>
+        <p>For actions, a number of the RDD's partitions will have to be computed. Because implementations would be similar, RDD methods will refer to a common method on the <code>SparkContext</code> object, to which each RDD keeps a reference:</p>
+        <pre><code class="scala">def runJob[T,U](rdd: RDD[T], func: Iterator[T] => U): Array[U]</code></pre>
+        <p>It applies the given function <code>func</code> to each computed partition of the given RDD to obtain a result of type <code>U</code>, then combines these results into an array.</p>
+
+        <h3>RDD methods</h3>
+        <h4>Collect</h4>
+        <p>Fetches all items in the dataset, and returns them as an array.</p>
+        <h4>Count</h4>
+        <p>Counts the number of elements in the dataset.</p>
+        <h4>Reduce</h4>
+        <p>Takes a function for reducing two elements to one, and returns a single element.</p>
+        <h4>Take</h4>
+        <p>Takes an integer <code>n</code>, and returns the first <code>n</code> results from the dataset.</p>
+
+    </section>
+</main>
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="js/bundle.js"></script>
+</body>
+</html>
