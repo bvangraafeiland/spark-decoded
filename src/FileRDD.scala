@@ -12,7 +12,7 @@ class FileRDD(context: SparkContext, path: String, numPartitions: Int) extends R
     getFileLines.slice(from, until)
   }
 
-  protected def getFileLines: Iterator[String] = io.Source.fromFile(path).getLines()
+  protected def getFileLines: Iterator[String] = io.Source.fromFile(path, "UTF-8").getLines()
 
   override def getPartitions: Array[Partition] = Array.tabulate(numPartitions)(i => new FilePartition(id, i))
 }
