@@ -1304,7 +1304,8 @@ mark,
 .text-center {
   text-align: center;
 }
-.text-justify {
+.text-justify,
+main {
   text-align: justify;
 }
 .text-nowrap {
@@ -6818,7 +6819,7 @@ section h1 {
   border-bottom: 1px solid;
   padding-bottom: 5px;
 }
-.hljs {
+pre code {
   white-space: pre;
   word-wrap: normal;
   word-break: normal;
