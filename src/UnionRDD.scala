@@ -9,8 +9,8 @@ class UnionRDD[T: ClassTag](context: SparkContext, rdds: Seq[RDD[T]]) extends RD
   override def getPartitions: Array[Partition] = {
     val array = new Array[Partition](rdds.map(_.partitions.length).sum)
     var pos = 0
-    for ((rdd, rddIndex) <- rdds.zipWithIndex; split <- rdd.partitions) {
-      array(pos) = new UnionPartition(pos, rdd, rddIndex, split.index)
+    for (rdd <- rdds; split <- rdd.partitions) {
+      array(pos) = new UnionPartition(pos, rdd, split.index)
       pos += 1
     }
     array
@@ -19,7 +19,7 @@ class UnionRDD[T: ClassTag](context: SparkContext, rdds: Seq[RDD[T]]) extends RD
   override def compute(p: Partition): Iterator[T] = {
     val partition = p.asInstanceOf[UnionPartition[T]]
 
-    rdds(partition.parentIndex).compute(partition.parentPartition)
+    partition.parent.iterator(partition.parentPartition)
   }
 
   override def getDependencies: Seq[Dependency[_]] = {

@@ -7,7 +7,7 @@ class MappedRDD[T,U: ClassTag](parent: RDD[T], f: Iterator[T] => Iterator[U], pr
 
   override def getPartitions: Array[Partition] = parent.partitions
 
-  override def compute(p: Partition): Iterator[U] = f(parent.compute(p))
+  override def compute(p: Partition): Iterator[U] = f(parent.iterator(p))
 
   override val partitioner: Option[Partitioner] = if (preservePartitioner) parent.partitioner else None
 }

@@ -8,6 +8,8 @@ abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[
 
   def this(oneParent: RDD[_]) = this(oneParent.context, Seq(new OneToOneDependency(oneParent)))
 
+  private var shouldPersist = false
+
   // Representation
 
   val id = context.newRddId()
@@ -38,13 +40,13 @@ abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[
 
   // Transformations
 
-  def map[U: ClassTag](f: T => U): RDD[U] = new MappedRDD[T,U](this, iter => iter.map(f))
+  def map[U: ClassTag](f: T => U): RDD[U] = new MappedRDD[T,U](this, _.map(f))
 
   def mapPartitions[U: ClassTag](f: Iterator[T] => Iterator[U]): RDD[U] = new MappedRDD[T,U](this, f)
 
-  def flatMap[U: ClassTag](f: T => Seq[U]) : RDD[U] = new MappedRDD[T,U](this, iter => iter.flatMap(f))
+  def flatMap[U: ClassTag](f: T => Seq[U]) : RDD[U] = new MappedRDD[T,U](this, _.flatMap(f))
 
-  def filter(f: T => Boolean): RDD[T] = new MappedRDD[T,T](this, iter => iter.filter(f))
+  def filter(f: T => Boolean): RDD[T] = new MappedRDD[T,T](this, _.filter(f))
 
   def union(other: RDD[T]): RDD[T] = new UnionRDD(context, Seq(this, other))
 
@@ -87,7 +89,7 @@ abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[
         collected
 
       else {
-        val mergedResult = collected ++ compute(partitions(currentPartitionIndex)).take(amount)
+        val mergedResult = collected ++ iterator(partitions(currentPartitionIndex)).take(amount)
         if (mergedResult.size == collected.size + amount)
           mergedResult
         else
@@ -95,6 +97,18 @@ abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[
       }
 
     takeFromPartitions(n, numPartitions, 0, Seq())
+  }
+
+  final def iterator(partition: Partition): Iterator[T] = {
+    if (shouldPersist)
+      context.getOrCompute(this, partition)
+    else
+      compute(partition)
+  }
+
+  def persist(): this.type = {
+    shouldPersist = true
+    this
   }
 }
 

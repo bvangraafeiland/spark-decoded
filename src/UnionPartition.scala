@@ -1,7 +1,7 @@
 /**
  * Created by Bastiaan on 29-06-2015.
  */
-class UnionPartition[T](ind: Int, parent: RDD[T], val parentIndex: Int, parentRDDPartitionIndex: Int) extends Partition {
+class UnionPartition[T](ind: Int, val parent: RDD[T], parentRDDPartitionIndex: Int) extends Partition {
   /**
    * Get the partition's index within its parent RDD
    */

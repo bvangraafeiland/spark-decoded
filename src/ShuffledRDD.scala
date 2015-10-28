@@ -4,7 +4,7 @@
 class ShuffledRDD[K,V,C](parent: RDD[(K,V)], part: Partitioner, aggregator: Option[Aggregator[K,V,C]] = None) extends RDD[(K,C)](parent.context, Nil) {
 
   private var keyOrdering: Option[Ordering[K]] = None
-  private val parentData = parent.partitions.map(p => parent.compute(p)).reduce(_ ++ _)
+  private val parentData = parent.partitions.map(p => parent.iterator(p)).reduce(_ ++ _)
 
   /** Set key ordering for RDD's shuffle. */
   def setKeyOrdering(keyOrdering: Ordering[K]): ShuffledRDD[K, V, C] = {
