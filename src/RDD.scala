@@ -42,11 +42,11 @@ abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[
 
   def map[U: ClassTag](f: T => U): RDD[U] = new MappedRDD[T,U](this, _.map(f))
 
-  def mapPartitions[U: ClassTag](f: Iterator[T] => Iterator[U]): RDD[U] = new MappedRDD[T,U](this, f)
+  def mapPartitions[U: ClassTag](f: Iterator[T] => Iterator[U], preservePartitioner: Boolean = false): RDD[U] = new MappedRDD[T,U](this, f, preservePartitioner)
 
   def flatMap[U: ClassTag](f: T => Seq[U]) : RDD[U] = new MappedRDD[T,U](this, _.flatMap(f))
 
-  def filter(f: T => Boolean): RDD[T] = new MappedRDD[T,T](this, _.filter(f))
+  def filter(f: T => Boolean): RDD[T] = new MappedRDD[T,T](this, _.filter(f), preservePartitioner = true)
 
   def union(other: RDD[T]): RDD[T] = new UnionRDD(context, Seq(this, other))
 

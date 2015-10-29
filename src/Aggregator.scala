@@ -19,4 +19,19 @@ class Aggregator[K,V,C] (createCombiner: V => C, mergeValue: (C,V) => C, mergeCo
 
     combiners.toIterator
   }
+
+  def combineCombinersByKey(iter: Iterator[(K,C)]): Iterator[(K,C)] = {
+    val combiners: mutable.HashMap[K,C] = new mutable.HashMap()
+
+    iter.foreach(pair => {
+      val key = pair._1
+      val value = pair._2
+      if (combiners contains key)
+        combiners.update(key, mergeCombiners(combiners(key), value))
+      else
+        combiners.update(key, value)
+    })
+
+    combiners.toIterator
+  }
 }

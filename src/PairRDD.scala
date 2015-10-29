@@ -13,18 +13,19 @@ class PairRDD[K: ClassTag, V: ClassTag](rdd: RDD[(K,V)]) {
     val aggregator = new Aggregator[K, V, C](createCombiner, mergeValue, mergeCombiners)
 
     if (rdd.partitioner contains partitioner) // already a shuffled RDD
-      rdd.mapPartitions(iter => aggregator.combineValuesByKey(iter))
+      rdd.mapPartitions(aggregator.combineValuesByKey, preservePartitioner = true)
     else
       new ShuffledRDD(rdd, partitioner, Some(aggregator))
   }
 
   def reduceByKey(f: (V,V) => V, numPartitions: Int): RDD[(K,V)] = combineByKey(identity, f, f, new HashPartitioner(numPartitions))
 
-  def reduceByKey(f: (V,V) => V): RDD[(K,V)] = combineByKey(identity, f, f, Partitioner.defaultPartitioner)
+  def reduceByKey(f: (V,V) => V): RDD[(K,V)] = reduceByKey(f, SparkContext.defaultNumPartitions)
 
-  def groupByKey(numPartitions: Int): RDD[(K,Seq[V])] = combineByKey(v => Seq(v), (seq, v) => v +: seq, (seq1, seq2) => seq1 ++ seq2, new HashPartitioner(numPartitions))
+  def groupByKey(numPartitions: Int): RDD[(K,Seq[V])] =
+    combineByKey(v => Seq(v), (seq, v) => v +: seq, (seq1, seq2) => seq1 ++ seq2, new HashPartitioner(numPartitions))
 
-  def groupByKey(): RDD[(K,Seq[V])] = combineByKey(v => Seq(v), (seq, v) => v +: seq, (seq1, seq2) => seq1 ++ seq2, Partitioner.defaultPartitioner)
+  def groupByKey(): RDD[(K,Seq[V])] = groupByKey(SparkContext.defaultNumPartitions)
 
   def partitionBy(partitioner: Partitioner): RDD[(K,V)] =
     if (rdd.partitioner contains partitioner)

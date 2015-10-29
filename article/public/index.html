@@ -4,14 +4,8 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
     <title>Spark Decoded</title>
-
-    <!-- Bootstrap -->
     <link href="css/main.css" rel="stylesheet">
-
-    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
-    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
     <!--[if lt IE 9]>
     <script src="//oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
     <script src="//oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
@@ -29,7 +23,7 @@
         <h1>Introduction</h1>
         <p>Apache Spark is a cluster computing framework, designed for processing large amounts of data. It was created at the University of California, accompanied by <a href="http://www.eecs.berkeley.edu/Pubs/TechRpts/2014/EECS-2014-12.html">this paper</a>. Later, it was moved to the Apache Software Foundation.</p>
         <p>Due to its impressive performance, it rapidly gained an audience, and several organizations use Spark for (parts of) their applications, including Amazon, eBay and Yahoo! (<a href="https://cwiki.apache.org/confluence/display/SPARK/Powered+By+Spark">source</a>).</p>
-        <p>In spite of all the attention Spark received, its inner workings are still hard to grasp. For starters, this is due to the paper not explaining it very thoroughly. Furthermore, although it is open sourced, the core functionality is hidden away rather deep down the rabbit hole, in high-level components such as schedulers and wrapper classes. The documentation is focused on how to use it, rather than what happens under the hood. </p>
+        <p>In spite of all the attention Spark received, its inner workings are still hard to grasp. For starters, this is due to the paper not explaining it very thoroughly. Furthermore, although it is open sourced, the core functionality is hidden away rather deep down the rabbit hole, with high-level components such as schedulers and wrappers delegating calls to other classes. The documentation is focused on how to use it, rather than what happens under the hood. </p>
         <p>The goal of this project is to provide a simplified implementation of Spark's core that is easily understood, along with proper documentation that is considerably shorter than the paper. Unless indicated otherwise, code fragments in this article are taken from my own implementation.</p>
         <p>First, I will introduce some concepts that are part of Spark. Then in the next section, implementation details are explained.</p>
     </section>
@@ -124,11 +118,62 @@
         <p>Some transformations are only available on RDDs that have key-value pairs. This is achieved by adding an implicit conversion to a <code>PairRDD</code> on the <code>RDD</code> object:</p>
         <pre><code class="scala">implicit def rddToPairRdd[K: ClassTag, V: ClassTag](rdd: RDD[(K,V)]): PairRDD[K,V] = new PairRDD(rdd)</code></pre>
         <p>The <code>PairRDD</code> class wraps around the RDD to provide the additional transformations and actions.</p>
+        <p>An important part of key-value RDD functionality is the <code>Aggregator</code> class. It uses three functions:</p>
+        <pre><code class="scala">class Aggregator[K,V,C] (createCombiner: V => C, mergeValue: (C,V) => C, mergeCombiners: (C,C) => C)</code></pre>
+        <p>These functions are used in two methods. First, there is <code>combineValuesByKey</code>, which turns an iterator with <code>(K,V)</code> pairs into one with <code>(K,C)</code> pairs:</p>
+        <pre><code class="scala">def combineValuesByKey(iter: Iterator[(K,V)]): Iterator[(K,C)] = {
+  val combiners: mutable.HashMap[K,C] = new mutable.HashMap()
+  iter.foreach(pair => {
+    val key = pair._1
+    val value = pair._2
+    if (combiners contains key)
+      combiners.update(key, mergeValue(combiners(key), value))
+    else
+      combiners.update(key, createCombiner(value))
+  })
+  combiners.toIterator
+}</code></pre>
+        <p>For each key, the first value of type <code>C</code> is obtained using the <code>createCombiner</code> function, then subsequent values for that key are merged into the result using the <code>mergeValue</code> function.</p>
+        <p>The other aggregate method is <code>combineCombinersByKey</code>. It is similar to <code>combineValuesByKey</code>, but accepts an iterator that already contains <code>(K,C)</code> pairs, so <code>mergeCombiners</code> is used instead of <code>mergeValue</code>, and <code>createCombiner</code> is left out.</p>
 
-        <h5>Combine by key</h5> <!-- includes (reduce, group, aggregate) -->
+        <h5>Combine by key</h5>
+        <p>The <code>combineByKey</code> method is used as a base for several other methods of key-value RDDs. It is implemented as follows:</p>
+        <pre><code class="scala">def combineByKey[C](createCombiner: V => C,
+                    mergeValue: (C, V) => C,
+                    mergeCombiners: (C, C) => C,
+                    partitioner: Partitioner): RDD[(K,C)] = {
+  val aggregator = new Aggregator[K, V, C](createCombiner, mergeValue, mergeCombiners)
 
+  if (rdd.partitioner contains partitioner)
+    rdd.mapPartitions(aggregator.combineValuesByKey, preservePartitioner = true)
+  else
+    new ShuffledRDD(rdd, partitioner, Some(aggregator))
+}</code></pre>
+        <p>The provided functions are wrapped in an <code>Aggregator</code>. If the RDD already contains a partitioner, the aggregator is used to map the combine function over each partition. Otherwise, a <code>ShuffledRDD</code> (explained in further detail in the Partitioners section) is used to repartition the RDD using the provided partitioner, resulting in a wide dependency.</p>
+        <p>The result of the method is an RDD that is partitioned according to the provided partitioner, and values for each separate key have been combined into a single value.</p>
+        
+        <h5>Reduce by key</h5>
+        <pre><code class="scala">def reduceByKey(f: (V,V) => V, numPartitions: Int): RDD[(K,V)] =
+  combineByKey(identity, f, f, new HashPartitioner(numPartitions))</code></pre>
+        <p>This method uses <code>combineByKey</code> to reduce the group of values for each key into a single value using the provided function <code>f</code>. Since the resulting RDD has the same type of values as this RDD, there is no need to transform a value into a combiner, so the identity function is used. A <code>HashPartitioner</code> (further explained in the Partitioners section) is used by default.</p>
+
+        <h5>Aggregate by key</h5>
+        <pre><code class="scala">def aggregateByKey[C](zeroValue: C, partitioner: Partitioner)(seqOp: (C, V) => C, comboOp: (C, C) => C): RDD[(K,C)] =
+  combineByKey(v => seqOp(zeroValue, v), seqOp, comboOp, partitioner)</code></pre>    
+        <p>This method is similar to <code>reduceByKey</code>, but it does not need a function to transform a value of type <code>V</code> into one of type <code>C</code>. Instead, it takes a "zero value" of type <code>C</code>, into which a given value can be merged using the provided merge function.</p>
+
+        <h5>Group by key</h5>
+        <pre><code class="scala">def groupByKey(numPartitions: Int): RDD[(K,Seq[V])] =
+  combineByKey(v => Seq(v), (seq, v) => v +: seq, (seq1, seq2) => seq1 ++ seq2, new HashPartitioner(numPartitions))</code></pre>
+        <p>Here, the values per key are combined into a sequence. Hence, in the resulting RDD, each key will appear only once. A single value is turned into a sequence with just one element, while a value can just be added to an existing sequence to merge it.</p>
 
         <h5>Partition by</h5>
+        <pre><code class="scala">def partitionBy(partitioner: Partitioner): RDD[(K,V)] =
+  if (rdd.partitioner contains partitioner)
+    rdd
+  else
+    new ShuffledRDD[K,V,V](rdd, partitioner)</code></pre>
+        <p>A <code>ShuffledRDD</code> is wrapped around the RDD in order to partition it using the provided partitioner. If the RDD was partitioned using the provided partitioner already, it can be returned as is.</p>
 
         <h3>Obtaining data with actions</h3>
         <!-- todo -->
