@@ -3,4 +3,5 @@ Repository for my literature survey. Code is stored in the master branch, websit
 
 ## TODO
 - [x] Persist RDDs
-- [ ] Distribute partitions over threads
+- [x] Concurrency
+- [ ] Fault tolerance

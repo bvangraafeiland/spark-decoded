@@ -1,3 +1,4 @@
+import scala.collection.mutable
 import scala.reflect.ClassTag
 
 /**
@@ -9,6 +10,7 @@ abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[
   def this(oneParent: RDD[_]) = this(oneParent.context, Seq(new OneToOneDependency(oneParent)))
 
   private var shouldPersist = false
+  private val persistedPartitions = new mutable.HashMap[Int, Iterator[T]]
 
   // Representation
 
@@ -101,9 +103,11 @@ abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[
 
   final def iterator(partition: Partition): Iterator[T] = {
     if (shouldPersist)
-      context.getOrCompute(this, partition)
-    else
+      persistedPartitions.getOrElseUpdate(partition.index, compute(partition))
+    else {
+      println("Computing partition " + partition.index + " of RDD " + id)
       compute(partition)
+    }
   }
 
   def persist(): this.type = {
