@@ -4,4 +4,4 @@ Repository for my literature survey. Code is stored in the master branch, websit
 ## TODO
 - [x] Persist RDDs
 - [x] Concurrency
-- [ ] Fault tolerance
+- [x] Fault tolerance
