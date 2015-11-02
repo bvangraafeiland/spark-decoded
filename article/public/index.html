@@ -65,7 +65,14 @@
         <pre><code class="scala">abstract class RDD[T](val context: SparkContext, deps: Seq[Dependency[_]])</code></pre>
         <p>The <code>partitions</code> and <code>dependencies</code> properties are computed only the first time they are needed, then saved internally, allowing for a time-consuming computation. Subclasses need to implement <code>getPartitions</code>. For dependencies this is optional, the value passed in the constructor is used by default.</p>
         <p>The <code>preferredLocations</code> method is left out in this implementation, because threads are used instead of true distribution. The partitioner is implemented as an <code>Option</code>, defaulting to <code>None</code> on the base class, because partitioners only make sense on key-value RDDs.</p>
-        <p>Finally, the <code>compute</code> method is left for the subclass to implement, as this method is what separates different types of RDDs.</p>
+        <p>Finally, the <code>compute</code> method is left for the subclass to implement, as this method is what separates different types of RDDs. This method is used only by the <code>iterator</code> method:</p>
+        <pre><code class="scala">final def iterator(partition: Partition): Iterator[T] = 
+  if (shouldPersist)
+    persistedPartitions.getOrElseUpdate(partition.index, compute(partition))
+  else 
+    compute(partition)
+</code></pre>
+        <p>If the RDD has been marked for persistence, this method will obtain the persisted partition if it exists, or else compute the requested partition and then persist it. If the RDD does not need to be persisted, it will just delegate to the <code>compute</code> method.</p>
 
         <h3>RDDs from existing data sources</h3>
         <p>To get an initial RDD, an existing data source can be used. This can be a file on the file system, or a <code>Seq</code> that has been computed already by some other means.</p>
@@ -95,7 +102,7 @@
         <pre><code class="scala">override def getPartitions: Array[Partition] = {
   val array = new Array[Partition](rdds.map(_.partitions.length).sum)
   var pos = 0
-  for (rdd <- rdds; split <- rdd.partitions) {
+  for (rdd &lt;- rdds; split &lt;- rdd.partitions) {
     array(pos) = new UnionPartition(pos, rdd, split.index)
     pos += 1
   }
@@ -176,30 +183,110 @@
         <p>A <code>ShuffledRDD</code> is wrapped around the RDD in order to partition it using the provided partitioner. If the RDD was partitioned using the provided partitioner already, it can be returned as is.</p>
 
         <h3>Obtaining data with actions</h3>
-        <!-- todo -->
         <p>Unlike transformations, an action on an RDD will actually cause it to compute its partitions. In order to do so, it will also cause its dependencies' partitions to be computed, starting a chain leading to the root RDD.</p>
-        <p>As a base for all actions, <code>SparkContext</code> contains a method which computes (a subset of) an RDD's partitions, applies a given function to each resulting iterator, and calls another function on the result:</p>
-        <pre><code class="scala">def runJob[T,U](rdd: RDD[T], func: Iterator[T] => U, partitions: Seq[Int], resultHandler: (Int, U) => Unit): Unit = {
-  partitions.foreach(index => {
-    val result = func(rdd.iterator(rdd.partitions(index)))
-    resultHandler(index, result)
-  })
-}</code></pre>
-        <p>In Spark, this method delegates calls to a scheduler, which will then balance the load over the nodes in the cluster. However, this logic is spread over many different classes and functions, to allow for proper delegation. For an easier explanation, I have implemented the logic in the <code>SparkContext</code> class directly.</p>
-        <p>For convenience, a wrapper method is also provided which uses the above method to populate an array with the result of each iterator as its elements, using the <code>resultHandler</code> function:</p>
-        <!-- todo -->
+        <p>As a base for all actions, <code>SparkContext</code> contains a method which computes (a subset of) an RDD's partitions, applies a given function to each resulting iterator, and calls another provided function on the result:</p>
+        <pre><code class="scala">def runJob[T,U](rdd: RDD[T], func: Iterator[T] => U, partitions: Seq[Int], resultHandler: (Int, U) => Unit): Unit</code></pre>
+        <p>In Spark, this method delegates calls to a scheduler, which will then balance the load over the nodes in the cluster. This implementation however, does not include distribution. Instead of nodes, different partitions are computed by different threads. The specifics are further explained in the next subsection.</p>
+        <p>For convenience, a wrapper method is also provided which uses the above method to return an array that is filled using the <code>resultHandler</code> function:</p>
         <pre><code class="scala">def runJob[T,U](rdd: RDD[T], func: Iterator[T] => U): Array[U]</code></pre>
-        <p>A number of actions use this method instead. Some available actions are:</p>
+        <p>Each entry in the returned array is the result of applying the provided function to a computed partition (so the size is equal to the number of partitions). A number of actions use this method instead. Some available actions are:</p>
 
+        <!-- todo -->
         <h4>Collect</h4>
         <p>Fetches all items in the dataset, and returns them as an array.</p>
+        <pre><code class="scala">def collect(): Array[T] = {
+  val results = context.runJob(this, (iter: Iterator[T]) => iter.toArray)
+  Array.concat(results: _*)
+}</code></pre>
+        <p>This involves just converting each partition to an array, then combining them into one.</p>
+
         <h4>Count</h4>
         <p>Counts the number of elements in the dataset.</p>
+        <pre><code class="scala">def count(): Long = context.runJob(this, (iter: Iterator[T]) => iter.size).sum</code></pre>
+        <p>Each iterator is transformed to its size, of which the sum is taken.</p>
+
         <h4>Reduce</h4>
         <p>Takes a function for reducing two elements to one, and returns a single element.</p>
+        <pre><code class="scala">def reduce(f: (T,T) => T): T = {
+  var result: Option[T] = None
+
+  val reducePartition = (iter: Iterator[T]) =>
+    // Guard against empty iterators
+    if (iter.hasNext) Some(iter.reduce(f))
+    else None
+
+  val mergeResults = (index: Int, reducedPartition: Option[T]) => {
+    if (reducedPartition.isDefined)
+      result = result match {
+        case Some(value) => Some(f(reducedPartition.get, value))
+        case None => reducedPartition
+      }
+  }
+  context.runJob(this, reducePartition, mergeResults)
+
+  result.getOrElse(throw new UnsupportedOperationException("empty dataset"))
+}</code></pre>
+        <p>As transformation, each partition is reduced to a single value using the provided reduce function on the iterator. Instead of obtaining an array, a custom result handler is defined, which will merge each reduced iterator into an existing variable, again using the reduce function.</p>
+
+
         <h4>Take</h4>
         <p>Takes an integer <code>n</code>, and returns the first <code>n</code> results from the dataset.</p>
+        <!-- TODO: implement as function for runJob -->
+        <!-- <p>An extra function is defined to allow for recursion and better readability. Starting with an empty sequence, </p> -->
 
+        <h2>Cluster simulation</h2>
+        <p>In this section, we will incrementally implement the <code>runJob</code> method in <code>SparkContext</code>, ending up with multithreading and fault tolerance. As a reminder, here is the signature for <code>runJob</code> again:</p>
+        <pre><code class="scala">def runJob[T,U](rdd: RDD[T], func: Iterator[T] => U, partitions: Seq[Int], resultHandler: (Int, U) => Unit): Unit</code></pre>
+        <p>So first off, we have an RDD and a sequence of partition IDs that will need to be computed on this RDD. Furthermore, there is a function to transform the result of each partition into another type, and a function to call on the result of the transformation. So let's do this:</p>
+        <pre><code class="scala">val iterators: Seq[Iterator[T]] = partitions.map(partitionIndex => rdd.iterator(rdd.partitions(partitionIndex))</code></pre>
+        <p>Here, we obtain the correct <code>Partition</code> instance required from the RDD's partition array. Then, the partition is computed using the <code>iterator</code> method. We end up with an <code>Iterator</code> for each partition. However, what we need are object of type <code>U</code>, for which we use the provided transformation function:</p>
+        <pre><code class="scala">val results: Seq[U] = iterators.map(func)</code></pre>
+        <p>Now that we have the desired results, we just need to call the <code>resultHandler</code> on each of them. The <code>foreach</code> method comes to mind. However, the result handler also takes the partition ID as a parameter, so it cannot be applied to <code>results</code> directly. To have the partition ID at this point, we should refactor:</p>
+        <pre><code class="scala">partitions.foreach(partitionIndex => resultHandler(partitionIndex, func(rdd.iterator(rdd.partitions(partitionIndex)))))</code></pre>
+
+        <h3>Multithreading</h3>
+        <p>At this point, we have a working implementation. But since we want to simulate distribution, each partition should be computed by a different thread. We will use <a href="http://docs.scala-lang.org/overviews/core/futures.html">Futures</a> for this. First, let's just wrap the operation in a <code>Future</code>:</p>
+        <pre><code class="scala">partitions.foreach(partitionIndex =>
+  Future { resultHandler(partitionIndex, func(rdd.iterator(rdd.partitions(partitionIndex)))) }
+)</code></pre>
+        <p>This will already cause each computation to happen in a separate thread. However, there is one issue left: due to the asynchronous nature of Futures, the caller of the <code>runJob</code> method has no guarantee that the result handler will have been called. In the case of the wrapper method that fills an array, this means that the array will not yet be complete after calling <code>runJob</code>. If the array is then used, parts of it may still be <code>null</code>. In other words, before <code>runJob</code> finishes, it should wait for all threads to complete their work. For this, we can use the <code>Await.ready</code> function on each future, but that would mean waiting for each thread to complete its work before spawning another thread, defeating the purpose of using threads in the first place. Instead, we will first obtain a sequence of Futures, using <code>map</code> rather than <code>foreach</code> on the partitions, and then wrap these in another <code>Future</code> using <code>Future.sequence</code>. Now we can await the result of the entire sequence. For better readability, we will also split the transformation of the iterator and handling the result into different Futures using <code>map</code>:</p>
+        <pre><code class="scala">val computePartitions: Future[Seq[Unit]] = Future.sequence(partitions.map(partitionIndex =>
+  Future { func(rdd.iterator(rdd.partitions(partitionIndex))) } map { result => resultHandler(partitionIndex, result) }
+))
+Await.ready(computePartitions, Duration.Inf)</code></pre>
+        <p>Now the method's caller will be guaranteed that its result handler has been called on each partition, so it can safely continue operations.</p>
+
+        <h3>Fault tolerance</h3>
+        <p>So far, we have replaced nodes with threads, but unlike nodes in a cluster, threads will not crash or disconnect occasionally. Therefore, we will also simulate faults by defining a function that returns whether a computation should fail:</p>
+        <pre><code class="scala">def nodeFailed[T](rdd: RDD[T], partitionIndex: Int): Boolean = Random.nextInt(100) &lt; 15</code></pre>
+        <p>This may be changed according to the desired situation but we will assume a 15&percnt; chance of failure. Now we insert this into the <code>Future</code>:</p>
+        <pre><code class="scala">if (nodeFailed(rdd, partitionIndex))
+  throw new NodeFailureException(rdd, partitionIndex)</code></pre>
+        <p>Now that we have faults occurring, we also need a way to recover from them. Upon failure, we want to retry running the job, but just on the failed partition. The <code>recover</code> method on Futures allows us to do so:</p>
+        <pre><code class="scala">recover {
+  case e: NodeFailureException[T] =>
+    println(e.getMessage)
+    runJob(rdd, func, List(e.partitionId), resultHandler)
+}</code></pre>
+        <p>At this point, we have everything that we needed: parallel computation, simulated faults, fault recovery, and re-entry into the synchronous world. For clarity, here is the full method:</p>
+        <pre><code class="scala">def runJob[T,U](rdd: RDD[T], func: Iterator[T] => U, partitions: Seq[Int], resultHandler: (Int, U) => Unit): Unit = {
+  val computePartitions = Future.sequence(partitions.map(partitionIndex => {
+    Future {
+      if (nodeFailed(rdd, partitionIndex))
+        throw new NodeFailureException(rdd, partitionIndex)
+
+      func(rdd.iterator(rdd.partitions(partitionIndex)))
+    } map {
+      result => resultHandler(partitionIndex, result)
+    } recover {
+      case e: NodeFailureException[T] =>
+        println(e.getMessage)
+        runJob(rdd, func, List(e.partitionId), resultHandler)
+    }
+  }))
+
+  Await.ready(computePartitions, Duration.Inf)
+}</code></pre>
         <h2>Dependencies</h2>
         <!-- todo -->
         <h2>Partitioners</h2>

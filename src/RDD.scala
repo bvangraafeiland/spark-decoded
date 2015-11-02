@@ -65,6 +65,7 @@ abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[
     var result: Option[T] = None
 
     val reducePartition = (iter: Iterator[T]) =>
+      // Guard against empty iterators
       if (iter.hasNext) Some(iter.reduce(f))
       else None
 
@@ -78,12 +79,13 @@ abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[
 
     context.runJob(this, reducePartition, mergeResults)
 
-    result.get
+    result.getOrElse(throw new UnsupportedOperationException("empty dataset"))
   }
 
   def first(): T = take(1).head
 
   def take(n: Int): Seq[T] = if (n == 0) Seq[T]() else {
+    //TODO move to runJob functions
     val numPartitions = partitions.length
 
     def takeFromPartitions(amount: Int, numPartitions: Int, currentPartitionIndex: Int, collected: Seq[T]): Seq[T] =

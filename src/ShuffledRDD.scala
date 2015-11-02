@@ -7,7 +7,7 @@ class ShuffledRDD[K,V,C](parent: RDD[(K,V)], part: Partitioner, aggregator: Opti
   private var parentDataList: List[(K,V)] = null
   def parentData: Iterator[(K,V)] = {
     if (parentDataList == null)
-      parentDataList = parent.partitions.map(p => parent.iterator(p)).reduce(_ ++ _).toList
+      parentDataList = context.runJob(parent, (iterator: Iterator[(K,V)]) => iterator.toList).reduce(_ ++ _)
 
     parentDataList.toIterator
   }
