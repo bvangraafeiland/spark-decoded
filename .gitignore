@@ -18,6 +18,6 @@ project/plugins/project/
 
 # IntelliJ
 .idea/workspace.xml
-src/Main.scala
+Main.scala
 sandbox.sc
 literature-survey.sublime-workspace

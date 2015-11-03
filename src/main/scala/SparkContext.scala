@@ -20,9 +20,8 @@ class SparkContext {
         if (nodeFailed(rdd, partitionIndex))
           throw new NodeFailureException(rdd, partitionIndex)
 
-        func(rdd.iterator(rdd.partitions(partitionIndex)))
-      } map {
-        result => resultHandler(partitionIndex, result)
+        val result = func(rdd.iterator(rdd.partitions(partitionIndex)))
+        resultHandler(partitionIndex, result)
       } recover {
         case e: NodeFailureException[T] =>
           println(e.getMessage)
