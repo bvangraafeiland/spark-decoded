@@ -249,9 +249,12 @@
         <pre><code class="scala">partitions.foreach(partitionIndex =>
   Future { resultHandler(partitionIndex, func(rdd.iterator(rdd.partitions(partitionIndex)))) }
 )</code></pre>
-        <p>This will already cause each computation to happen in a separate thread. However, there is one issue left: due to the asynchronous nature of Futures, the caller of the <code>runJob</code> method has no guarantee that the result handler will have been called. In the case of the wrapper method that fills an array, this means that the array will not yet be complete after calling <code>runJob</code>. If the array is then used, parts of it may still be <code>null</code>. In other words, before <code>runJob</code> finishes, it should wait for all threads to complete their work. For this, we can use the <code>Await.ready</code> function on each future, but that would mean waiting for each thread to complete its work before spawning another thread, defeating the purpose of using threads in the first place. Instead, we will first obtain a sequence of Futures, using <code>map</code> rather than <code>foreach</code> on the partitions, and then wrap these in another <code>Future</code> using <code>Future.sequence</code>. Now we can await the result of the entire sequence. For better readability, we will also split the transformation of the iterator and handling the result into different Futures using <code>map</code>:</p>
+        <p>This will already cause each computation to happen in a separate thread. However, there is one issue left: due to the asynchronous nature of Futures, the caller of the <code>runJob</code> method has no guarantee that the result handler will have been called. In the case of the wrapper method that fills an array, this means that the array will not yet be complete after calling <code>runJob</code>. If the array is then used, parts of it may still be <code>null</code>. In other words, before <code>runJob</code> finishes, it should wait for all threads to complete their work. For this, we can use the <code>Await.ready</code> function on each future, but that would mean waiting for each thread to complete its work before spawning another thread, defeating the purpose of using threads in the first place. Instead, we will first obtain a sequence of Futures, using <code>map</code> rather than <code>foreach</code> on the partitions, and then wrap these in another <code>Future</code> using <code>Future.sequence</code>. Now we can await the result of the entire sequence:</p>
         <pre><code class="scala">val computePartitions: Future[Seq[Unit]] = Future.sequence(partitions.map(partitionIndex =>
-  Future { func(rdd.iterator(rdd.partitions(partitionIndex))) } map { result => resultHandler(partitionIndex, result) }
+  Future {
+    val result = func(rdd.iterator(rdd.partitions(partitionIndex)))
+    resultHandler(partitionIndex, result)
+  }
 ))
 Await.ready(computePartitions, Duration.Inf)</code></pre>
         <p>Now the method's caller will be guaranteed that its result handler has been called on each partition, so it can safely continue operations.</p>
@@ -275,9 +278,8 @@ Await.ready(computePartitions, Duration.Inf)</code></pre>
       if (nodeFailed(rdd, partitionIndex))
         throw new NodeFailureException(rdd, partitionIndex)
 
-      func(rdd.iterator(rdd.partitions(partitionIndex)))
-    } map {
-      result => resultHandler(partitionIndex, result)
+      val result = func(rdd.iterator(rdd.partitions(partitionIndex)))
+      resultHandler(partitionIndex, result)
     } recover {
       case e: NodeFailureException[T] =>
         println(e.getMessage)
