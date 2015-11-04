@@ -32,7 +32,7 @@ class SparkContext {
     Await.ready(computePartitions, Duration.Inf)
   }
 
-  def nodeFailed[T](rdd: RDD[T], partitionIndex: Int): Boolean = Random.nextInt(100) < 15
+  private def nodeFailed[T](rdd: RDD[T], partitionIndex: Int): Boolean = Random.nextInt(100) < 15
 
   def runJob[T,U](rdd: RDD[T], func: Iterator[T] => U, resultHandler: (Int, U) => Unit): Unit = runJob[T,U](rdd, func, rdd.partitions.indices, resultHandler)
 

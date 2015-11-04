@@ -10,7 +10,7 @@ abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[
   def this(oneParent: RDD[_]) = this(oneParent.context, Seq(new OneToOneDependency(oneParent)))
 
   private var shouldPersist = false
-  private val persistedPartitions = new mutable.HashMap[Int, Iterator[T]]
+  private val persistedPartitions = new mutable.HashMap[Int, List[T]]
 
   // Representation
 
@@ -34,7 +34,7 @@ abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[
     _dependencies
   }
 
-  def compute(p: Partition): Iterator[T]
+  protected def compute(p: Partition): Iterator[T]
 
   // distributed functionality
 //  def preferredLocations(p: Partition): Seq[String] = ???
@@ -105,7 +105,7 @@ abstract class RDD[T: ClassTag](val context: SparkContext, deps: Seq[Dependency[
 
   final def iterator(partition: Partition): Iterator[T] = {
     if (shouldPersist)
-      persistedPartitions.getOrElseUpdate(partition.index, compute(partition))
+      persistedPartitions.getOrElseUpdate(partition.index, compute(partition).toList).toIterator
     else {
       println("Computing partition " + partition.index + " of RDD " + id)
       compute(partition)
