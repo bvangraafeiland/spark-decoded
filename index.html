@@ -60,21 +60,33 @@
     <section id="implementation">
         <h1>Implementation</h1>
 
+        <h2>Environment context</h2>
+        <p>Let's get started with a class containing functionality related to RDDs that doesn't really belong in the RDDs themselves. This includes generating IDs, instantiating new RDDs from existing data, and extracting datasets from RDDs. We'll call this class <code>SparkContext</code>.</p>
+        <p>To generate IDs for RDDs, we'll use an auto-incrementing integer, starting at 0. This can be accomplished with <code>AtomicInteger</code>:</p>
+        <pre><code class="scala">private val nextRddId = new AtomicInteger(0)
+def newRddId(): Int = nextRddId.getAndIncrement()</code></pre>
+        <p>The implementations for RDD initialization and data extraction will be described in the next section.</p>
+
         <h2>RDDs</h2>
-        <p>The base <code>RDD</code> class requires a context and its dependencies. Alternatively, another RDD can be passed and that RDD's context will be used, and set as the only dependency. An incrementing ID is obtained from the context and assigned to the RDD.</p>
+        <h3>Base</h3>
+        <p>There are several different types of RDDs. Their common functionality will be implemented in an abstract base class. First of all, RDDs need a reference to the context class. Then, following the properties of RDDs in the <a href="#concepts">Concepts</a> section, they need to define partitions, a function to compute a partition, dependencies, and a partitioner. The preferred locations are left out in this implementation because there aren't actually different locations for partitions. To get started, we accept the context and dependencies in the constructor:</p>
         <pre><code class="scala">abstract class RDD[T](val context: SparkContext, deps: Seq[Dependency[_]])</code></pre>
-        <p>The <code>partitions</code> and <code>dependencies</code> properties are computed only the first time they are needed, then saved internally, allowing for a time-consuming computation. Subclasses need to implement <code>getPartitions</code>. For dependencies this is optional, the value passed in the constructor is used by default.</p>
-        <p>The <code>preferredLocations</code> method is left out in this implementation, because threads are used instead of true distribution. The partitioner is implemented as an <code>Option</code>, defaulting to <code>None</code> on the base class, because partitioners only make sense on key-value RDDs.</p>
-        <p>Finally, the <code>compute</code> method is left for the subclass to implement, as this method is what separates different types of RDDs. This method is used only by the <code>iterator</code> method:</p>
+        <p>In general, RDDs will be derived from another RDD. Therefore, we can obtain the context from the parent. As for the dependencies, we will assume a single narrow dependency with an equal amount of partitions for each RDD. This is implemented in <code>OneToOneDependency</code>, which is explained in further detail in the Dependencies subsection. Both of this leads to another constructor:</p>
+        <pre><code class="scala">def this(parent: RDD[_]) = this(parent.context, Seq(new OneToOneDependency(parent)))</code></pre>
+        <p>The <code>partitions</code> and <code>dependencies</code> properties are computed only the first time they are needed, then saved on a variable, allowing for a time-consuming computation. Subclasses need to implement <code>getPartitions</code>. For dependencies this is optional, since the value passed in the constructor is used by default.</p>
+        <p>The <code>preferredLocations</code> method is left out in this implementation, because threads are used instead of true distribution. A partitioner can only be applied to key-value RDDs (i.e. RDDs where elements of the dataset are tuples, and the key-value relation is represented by the tuple) so we make it optional and leaving it off by default, using <code>Option</code>. Subclasses needing a partitioner can override this property.</p>
+        <p>To be able to distinguish between different RDDs, an incrementing ID is obtained from the context and assigned to the RDD"</p>
+        <pre><code class="scala">val id = context.newRddId()</code></pre>
+        <p>The <code>compute</code> method is left for the subclass to implement, as this method is what separates different types of RDDs. To allow for persisting/caching the RDD's data, preventing recomputation at the cost of memory, we also add a <code>persist</code> method to <code>RDD</code>. After persisting, we want the <code>compute</code> method to run at most one time. On subsequent calls, the cached data should be returned instead. For this, we define a wrapper method, <code>iterator</code> and set the visibility of <code>compute</code> to <code>protected</code>.</p>
         <pre><code class="scala">final def iterator(partition: Partition): Iterator[T] = 
   if (shouldPersist)
-    persistedPartitions.getOrElseUpdate(partition.index, compute(partition))
+    persistedPartitions.getOrElseUpdate(partition.index, compute(partition).toList).toIterator
   else 
     compute(partition)
 </code></pre>
-        <p>If the RDD has been marked for persistence, this method will obtain the persisted partition if it exists, or else compute the requested partition and then persist it. If the RDD does not need to be persisted, it will just delegate to the <code>compute</code> method.</p>
+        <p>If the RDD has been marked for persistence, this method will obtain the persisted partition if it exists, or else compute the requested partition and then persist it. Because an <code>Iterator</code> can only be traversed once, the data is persisted as <code>List</code> and converted back when needed. If the RDD doesn't need to be persisted, it will just delegate to the <code>compute</code> method.</p>
 
-        <h3>RDDs from existing data sources</h3>
+        <h3>Initializing RDDs from existing data sources</h3>
         <p>To get an initial RDD, an existing data source can be used. This can be a file on the file system, or a <code>Seq</code> that has been computed already by some other means.</p>
 
         <h4>File system</h4>
