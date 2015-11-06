@@ -6819,6 +6819,16 @@ section h1 {
   border-bottom: 1px solid;
   padding-bottom: 5px;
 }
+figure {
+  margin: 2em 1em;
+  counter-increment: figures;
+}
+figure figcaption {
+  margin-top: 5px;
+}
+figure figcaption:before {
+  content: 'Fig. ' counter(figures) ': ';
+}
 pre code {
   white-space: pre;
   word-wrap: normal;
