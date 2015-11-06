@@ -26,6 +26,17 @@ main:extend(.container, .text-justify) {
 
 }
 
+figure {
+    margin: 2em 1em;
+    counter-increment: figures;
+    figcaption {
+        margin-top: 5px;
+        &:before {
+            content: 'Fig. ' counter(figures) ': ';
+        }
+    }
+}
+
 pre code {
     white-space: pre;
     word-wrap: normal;

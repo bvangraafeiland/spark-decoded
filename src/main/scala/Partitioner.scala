@@ -93,7 +93,7 @@ class RangePartitioner[K: Ordering: ClassTag, V](partitionCount: Int, rdd: RDD[(
     (content.toArray, count)
   }
 
-  private def determineBounds[K : Ordering : ClassTag](candidates: ArrayBuffer[(K, Float)], partitions: Int): Array[K] = {
+  private def determineBounds(candidates: ArrayBuffer[(K, Float)], partitions: Int): Array[K] = {
     val ordering = implicitly[Ordering[K]]
     val ordered = candidates.sortBy(_._1)
     val numCandidates = ordered.size
