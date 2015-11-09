@@ -1107,7 +1107,8 @@ img {
 .thumbnail > img,
 .thumbnail a > img,
 .carousel-inner > .item > img,
-.carousel-inner > .item > a > img {
+.carousel-inner > .item > a > img,
+img {
   display: block;
   max-width: 100%;
   height: auto;
