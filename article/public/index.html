@@ -37,22 +37,29 @@
             <li>From Hadoop, text files, or an iterable that the user prepared already</li>
             <li>By applying a <em>transformation</em> to an existing RDD</li>
         </ol>
-        Once all desirable transformations have been applied, an RDD's data is retrieved through <em>actions</em>, such as <code>collect</code> to obtain elements of the set, or <code>count</code> for the total amount of items contained by the RDD. RDDs always have a specific type, determined by the type of their dataset. For example, when instantiating an RDD based on a text file, elements of the dataset will be the file's lines. Hence, the type of the RDD will be <code>String</code>. Applying a transformation may change the RDD's type.
-        <figure><img src="img/rdd_overview.png" alt=""><figcaption>Operations on RDDs</figcaption></figure>
+        Once all desirable transformations have been applied, an RDD's data is retrieved through <em>actions</em>, such as <code>collect</code> to obtain elements of the set, or <code>count</code> for the total amount of items contained by the RDD. RDDs always have a specific type, determined by the type of their dataset. For example, when instantiating an RDD based on a text file, elements of the dataset will be the file's lines. Hence, the type of the RDD will be <code>String</code>. Applying a transformation may change the RDD's type.</p>
+        <figure>
+            <img src="img/rdd_overview.svg" alt="">
+            <figcaption>Operations on RDDs</figcaption>
+        </figure>
         <p>RDDs are immutable, so the second way will result in a separate object. This new RDD is linked to its parent, forming a chain when applying multiple transformations.</p>
         <p>The data that an RDD describes is not computed until requested. To illustrate, consider this example:</p>
         <pre><code class="scala">val lines = spark.textFile("example.txt")
 val longLines = lines.filter(_.length > 40)
 val longUppercaseLines = longLines.map(_.toUpperCase)
 </code></pre>
-        <p>This lineage can be visualized in a graph:<figure><img src="img/rdd_example_1.png" class="img-responsive" alt=""><figcaption>As transformations are applied, new RDDs are created every time.</figcaption></figure></p>
+        <p>This lineage can be visualized in a graph:</p>
+        <figure>
+            <img src="img/rdd_example_1.svg" alt="">
+            <figcaption>As transformations are applied, new RDDs are created every time.</figcaption>
+        </figure>
         <p>So far, no computations have been made yet, so size of the input file has no effect on execution time. The <code>lines</code> RDD merely has a pointer to a text file, and the subsequent RDDs know what operation needs to be applied to their parent's data in order to return their own data. This data can then be collected like this:</p>
         <pre><code class="scala">val result = longUppercaseLines.collect()</code></pre>
-        <p>When computing data, Spark spreads the workload over available worker nodes on the cluster. The desired amount of parallelism is indicated by the user, and the RDD's data is spread over this amount of <em>partitions</em>. The driver node then sends a task to each worker to independently compute part of the dataset by applying the given transformation to its assigned partition, and returns the results to the driver node. The driver node can then handle all received data accordingly.
+        <p>When computing data, Spark spreads the workload over available worker nodes on the cluster. The desired amount of parallelism is indicated by the user, and the RDD's data is spread over this amount of <em>partitions</em>. The driver node then sends a task to each worker to independently compute part of the dataset by applying the given transformation to its assigned partition, and returns the results to the driver node. The driver node can then handle all received data accordingly.</p>
         <figure>
-            <img src="img/cluster_graph.png" alt="">
+            <img src="img/cluster_graph.svg" alt="">
             <figcaption>Driver and worker node interaction.</figcaption>
-        </figure></p>
+        </figure>
         <p>RDDs are based on the MapReduce model, and build upon this model. As a result, any MapReduce operations can be ported to RDDs. It turns out that MapReduce by itself can already emulate any kind of distributed computation, so this extends to RDDs as well. The reason for this is that local computation can be done by the maps, while communication is achieved through the reduce steps. This way, each time step of a distributed computation can be taken on by MapReduce. From this, the generality of RDDs follows.</p>
         <p>A traditional issue is fault tolerance. This is generally solved by replicating data or logging updates, while operations allow for fine-grained operations on mutable data state. RDDs on the other hand only provide coarse grained transformations, where the same operation is applied to the entire dataset. This way, fault tolerance is easily achieved by keeping track of the operations performed on the data, rather than replicating the data itself. Another way to look at this is that the (much shorter) question is remembered, rather than the answer. On data loss (e.g. node failure), only the lost partitions need to be recalculated by other nodes.</p>
         <p>Of course, recomputing large datasets after faults can be expensive. RDDs can therefore be persisted (cached) to internal memory or disk, so in case of a failure further down the line, the data doesn't need to be recomputed. This is also useful if one RDD is used as a parent for several other child RDDs. Like with transformations, an RDD only needs to be marked to be persisted, which doesn't do anything by itself. However, the next time its data is computed, it will be persisted for future use.</p>
@@ -66,13 +73,17 @@ val longUppercaseLines = longLines.map(_.toUpperCase)
         </ul>
 
         <h2>Partitions</h2>
-        <!-- todo? -->
         <p>A partition represents a subset of the data of an RDD, but generally has no reference to the data itself. It contains metadata that is needed for the computation of its data. When an RDD's data is computed, the partitions are distributed among the available nodes in the cluster, after which each node computes only their partitions. The amount of partitions in an RDD can be chosen by the user, but should be equal to the number of available nodes.</p>
+        <p>Whenever possible, an RDD's partitions are its parent's partitions with the transformation operation applied to them. This way, a node can apply all necessary transformations to a partition without having to communicate with other nodes. When an RDD is instantiated from a text file, the file will be divided over the amount of nodes like this:</p>
+        <figure>
+            <img src="img/partitions.svg" alt="">
+            <figcaption>A text file divided into two partitions, which are preserved after a transformation</figcaption>
+        </figure>
 
         <h2>Partitioners</h2>
         <p>An RDD obtained by applying the <em>map</em> transformation (applying a function to each element of the dataset) has a tuple as its type if the map function returns a tuple. This is referred to as a <em>key-value RDD</em>, where each tuple is considered a key-value pair. A partitioner assigns elements of such an RDD to a partition by transforming a key to a valid partition ID. Spark includes some partitioners by default, but users can also implement their own custom partitioners.
         <figure>
-            <img src="img/partitioner.png" alt="">
+            <img src="img/partitioner.svg" alt="">
             <figcaption>The transformation of a key to a partition</figcaption>
         </figure></p>
         <p>One reason for having a partitioner on an RDD is that it results in elements with the same key being assigned to the same partition. This means a single node has all elements required for operations such as <em>group by key</em>, which collects all values per key into an array, or <em>reduce by key</em>, which merges all values per key into a single value using a given reduce function.</p>
@@ -81,7 +92,9 @@ val longUppercaseLines = longLines.map(_.toUpperCase)
 
         <h2>Dependencies</h2>
         <p>Each RDD keeps track of the RDDs that it depends upon for computing its partitions. For "root" RDDs, constructed from an existing data source, this list is empty.</p>
-        <p>In Spark, there are two different types of dependencies. First, there are <em>narrow</em> dependencies, where at most one partition of the child RDD depends upon a partition of the parent RDD. The other type is <em>wide</em> dependencies, where multiple partitions of the child may depend upon a single partition of the parent. An example of a narrow dependency is the <em>map</em> operation, which applies a provided function to each element of the dataset. Each partition of the parent RDD is mapped, resulting in the partitions of the child RDD. Therefore, to compute a given partition on the child RDD, only one partition of the parent RDD is required. An example of a wide dependency is the repartitioning of an RDD by a partitioner. After this, data from each partition in the parent RDD may be assigned to a single partition of the child RDD. Therefore, multiple partitions will be depending upon a single parent RDD partition.</p>
+        <p>In Spark, there are two different types of dependencies. First, there are <em>narrow</em> dependencies, where at most one partition of the child RDD depends upon a partition of the parent RDD. The other type is <em>wide</em> dependencies, where multiple partitions of the child may depend upon a single partition of the parent.</p>
+        <p>An example of a narrow dependency is the <em>map</em> transformation, which applies a provided function to each element of the dataset. Each partition of the parent RDD is mapped, resulting in the partitions of the child RDD. Therefore, to compute a given partition on the child RDD, only one partition of the parent RDD is required.</p>
+        <p>An example of a wide dependency is the repartitioning of an RDD by a partitioner. After this, data from each partition in the parent RDD may be assigned to a single partition of the child RDD. Therefore, multiple partitions will be depending upon a single parent RDD partition.</p>
         <p>Following these definitions, narrow dependencies allow for more efficient computations, since multiple operations can be pipelined on a single partition, without having to compute the partition inbetween operations. Furthermore, recovery after a failure is easily achieved by computing the lost partitions in parallel on different nodes. Wide dependencies on the other hand, require all data from the parent to be computed to be shuffled across the child partitions. On node failure, the entire parent RDD needs to be recomputed, since all partitions contain data that is needed for the recalculation.</p>
     </section>
 

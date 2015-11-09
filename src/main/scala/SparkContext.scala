@@ -2,7 +2,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import scala.reflect.ClassTag
 import scala.concurrent._
 import ExecutionContext.Implicits.global
-import scala.util.{Failure, Success, Random}
+import scala.util.Random
 import scala.concurrent.duration._
 
 /**
