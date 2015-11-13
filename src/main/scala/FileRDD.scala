@@ -3,7 +3,7 @@
  */
 class FileRDD(context: SparkContext, path: String, numPartitions: Int) extends RDD[String](context, Nil) {
 
-  private val numLines = getFileLines.size
+  private lazy val numLines = getFileLines.size
 
   override def compute(p: Partition): Iterator[String] = {
     val pid = p.index

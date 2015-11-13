@@ -43,7 +43,7 @@
             <figcaption>Operations on RDDs</figcaption>
         </figure>
         <p>RDDs are immutable, so the second way will result in a separate object. This new RDD is linked to its parent, forming a chain when applying multiple transformations.</p>
-        <p>The data that an RDD describes is not computed until requested. To illustrate, consider this example:</p>
+        <p>A powerful property of RDDs is that their data is not computed until requested. Initially, only a minimal amount of metadata is stored on the RDD, based on which it can compute the actual data. To illustrate, consider this example:</p>
         <pre><code class="scala">val lines = spark.textFile("example.txt")
 val longLines = lines.filter(_.length > 40)
 val longUppercaseLines = longLines.map(_.toUpperCase)
@@ -94,7 +94,15 @@ val longUppercaseLines = longLines.map(_.toUpperCase)
         <p>Each RDD keeps track of the RDDs that it depends upon for computing its partitions. For "root" RDDs, constructed from an existing data source, this list is empty.</p>
         <p>In Spark, there are two different types of dependencies. First, there are <em>narrow</em> dependencies, where at most one partition of the child RDD depends upon a partition of the parent RDD. The other type is <em>wide</em> dependencies, where multiple partitions of the child may depend upon a single partition of the parent.</p>
         <p>An example of a narrow dependency is the <em>map</em> transformation, which applies a provided function to each element of the dataset. Each partition of the parent RDD is mapped, resulting in the partitions of the child RDD. Therefore, to compute a given partition on the child RDD, only one partition of the parent RDD is required.</p>
-        <p>An example of a wide dependency is the repartitioning of an RDD by a partitioner. After this, data from each partition in the parent RDD may be assigned to a single partition of the child RDD. Therefore, multiple partitions will be depending upon a single parent RDD partition.</p>
+        <figure>
+            <img src="img/narrow_dependency.svg" alt="">
+            <figcaption>An RDD resulting from a <em>map</em> transformation has a narrow dependency: each partition has a single outgoing connection.</figcaption>
+        </figure>
+        <p>An example of a wide dependency is the <em>group by key</em> transformation. This operation, available on RDDs of key-value pairs, causes all values per key to be grouped together. To achieve this, elements with the same key are assigned to the same partition using a partitioner, so that a single node has access to all values that it needs to group together. As a result, data from a single parent partition may end up being shuffled across multiple child partitions.</p>
+        <figure>
+            <img src="img/wide_dependency.svg" alt="">
+            <figcaption>An RDD resulting from a <em>group by key</em> transformation has a wide dependency: partitions can have multiple outgoing connections.</figcaption>
+        </figure>
         <p>Following these definitions, narrow dependencies allow for more efficient computations, since multiple operations can be pipelined on a single partition, without having to compute the partition inbetween operations. Furthermore, recovery after a failure is easily achieved by computing the lost partitions in parallel on different nodes. Wide dependencies on the other hand, require all data from the parent to be computed to be shuffled across the child partitions. On node failure, the entire parent RDD needs to be recomputed, since all partitions contain data that is needed for the recalculation.</p>
     </section>
 
@@ -128,12 +136,21 @@ def newRddId(): Int = nextRddId.getAndIncrement()</code></pre>
         <p>If the RDD has been marked for persistence, this method will obtain the persisted partition if it exists, or else compute the requested partition and then persist it. Because an <code>Iterator</code> can only be traversed once, the data is persisted as <code>List</code> and converted back when needed. If the RDD doesn't need to be persisted, it will just delegate to the <code>compute</code> method.</p>
 
         <h3>Initializing RDDs from existing data sources</h3>
-        <p>To get an initial RDD, an existing data source can be used. This can be a file on the file system, or a <code>Seq</code> that has been computed already by some other means.</p>
+        <p>To get an initial RDD, an existing data source needs to be available. We will consider two scenarios: a file on the file system, or a <code>Seq</code> that has been computed already by some other means.</p>
 
         <h4>File system</h4>
         <p>Spark uses Hadoop's <code>InputFormat</code> class to read files from local storage or HDFS. This takes care of properly splitting the input file across partitions. For the sake of an easier explanation, I have simplified the functionality to text files only, without depending on Hadoop. This results in the following class signature:</p>
         <pre><code class="scala">class FileRDD(context: SparkContext, path: String, numPartitions: Int) extends RDD[String](context, Nil)</code></pre>
-        <p>Note the dependencies are <code>Nil</code> since this is a root RDD. For dividing the file contents over the indicated number of partitions, the total number of lines is computed. To compute a partition, an iterator for the full text file is sliced, with boundaries depending on the partition's ID and the total number of lines divided by <code>numPartitions</code>.</p>
+        <p>Note that the dependencies are set to <code>Nil</code> since this is a root RDD. To divide the file contents over the indicated number of partitions, the full text file is sliced into equally sized parts, with boundaries depending on the partition's ID and the total number of lines divided by <code>numPartitions</code>:</p>
+        <pre><code class="scala">private lazy val numLines = getFileLines.size
+
+override def compute(p: Partition): Iterator[String] = {
+  val pid = p.index
+  val from = (pid * numLines) / numPartitions
+  val until = ((pid + 1) * numLines) / numPartitions
+  getFileLines.slice(from, until)
+}</code></pre>
+        <p>Upon initialization, nothing is computed yet. The RDD just knows where to find its file, and the file's content is only retrieved when needed.</p>
 
         <h4>Pre-computed sequence</h4>
         <p>A <code>ParallelCollectionRDD</code> is used for <code>Seq</code> input:</p>
