@@ -6816,9 +6816,16 @@ github.com style (c) Vasily Polovnyov <vast@whiteants.net>
   background: linear-gradient(to bottom right, #84FF00, #044CBF 85%);
   font-family: 'Droid Serif', Georgia, "Times New Roman", Times, serif;
 }
+section {
+  counter-increment: sections;
+  counter-reset: figures;
+}
 section h1 {
   border-bottom: 1px solid;
   padding-bottom: 5px;
+}
+section h1:before {
+  content: counter(sections) '. ';
 }
 figure {
   margin: 2em 1em;
@@ -6828,7 +6835,7 @@ figure figcaption {
   margin-top: 5px;
 }
 figure figcaption:before {
-  content: 'Fig. ' counter(figures) ': ';
+  content: 'Fig. ' counter(sections) '.' counter(figures) ': ';
 }
 pre code {
   white-space: pre;
