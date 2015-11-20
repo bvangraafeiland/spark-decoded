@@ -123,6 +123,7 @@ def newRddId(): Int = nextRddId.getAndIncrement()</code></pre>
         <p>In general, RDDs will be derived from another RDD. Therefore, we can obtain the context from the parent. As for the dependencies, we will assume a single narrow dependency with an equal amount of partitions for each RDD. This is implemented in <code>OneToOneDependency</code>, which is explained in further detail in the Dependencies subsection. Both of this leads to another constructor:</p>
         <pre><code class="scala">def this(parent: RDD[_]) = this(parent.context, Seq(new OneToOneDependency(parent)))</code></pre>
         <p>The <code>partitions</code> and <code>dependencies</code> properties are computed only the first time they are needed, then saved on a variable, allowing for a time-consuming computation. Subclasses need to implement <code>getPartitions</code>. For dependencies this is optional, since the value passed in the constructor is used by default.</p>
+        <p>Partitions exist in different classes, which all implement the <code>Partition</code> trait. This trait only requires an <code>index</code> method, returning an integer. Hence, a partition is just a wrapper around an ID at its base. As we will see, some of its implementations require more information though.</p>
         <p>The <code>preferredLocations</code> method is left out in this implementation, because threads are used instead of true distribution. A partitioner can only be applied to key-value RDDs (i.e. RDDs where elements of the dataset are tuples, and the key-value relation is represented by the tuple) so we make it optional and leaving it off by default, using <code>Option</code>. Subclasses needing a partitioner can override this property.</p>
         <p>To be able to distinguish between different RDDs, an incrementing ID is obtained from the context and assigned to the RDD:</p>
         <pre><code class="scala">val id = context.newRddId()</code></pre>
@@ -153,22 +154,41 @@ override def compute(p: Partition): Iterator[String] = {
         <p>Upon initialization, nothing is computed yet. The RDD just knows where to find its file, and the file's content is only retrieved when needed.</p>
 
         <h4>Pre-computed sequence</h4>
-        <p>A <code>ParallelCollectionRDD</code> is used for <code>Seq</code> input:</p>
-        <pre><code class="scala">def parallelize[T](seq: Seq[T], numSlices: Int): RDD[T] = new ParallelCollectionRDD[T](this, seq, numSlices)</code></pre>
-        <p>The dataset is then split into <code>numSlices</code> partitions of equal size. The partition class used, <code>ParallelCollectionPartition</code>, differs from the usual partition in that it contains a reference to the actual data, rather than just being a wrapper around the ID. From this, the following class signature follows:</p>
-        <pre><code class="scala">class ParallelCollectionPartition[T](val rddId: Int, partitionId: Int, values: Seq[T]) extends Partition </code></pre>
-        <p>Now, to compute a partition, all that is needed is to convert its <code>values</code> to an iterator.</p>
+        <p>The other option is to use a <code>Seq</code> that is available already. To use this sequence in an RDD, we pass it into the constructor:</p>
+        <pre><code class="scala">class ParallelCollectionRDD[T](context: SparkContext, data: Seq[T], numPartitions: Int) extends RDD[T](context, Nil)</code></pre>
+        <p>Like with <code>FileRDD</code>, the dependencies are set to <code>Nil</code> because the only dependency is the dataset that has been passed in already. In order to parallelize operations on this dataset, it is equally split into the desired number of partitions:</p>
+        <pre><code class="scala">override def getPartitions: Array[Partition] = {
+  val dataArray = data.toArray // better performance
+  val totalLength = dataArray.length
+  (0 until numPartitions).map(index => {
+    val start = (index * totalLength) / numPartitions
+    val end = ((index + 1) * totalLength) / numPartitions
+    new ParallelCollectionPartition(id, index, dataArray.slice(start, end))
+  }).toArray
+}</code></pre>
+
+        <p>The partition class used, <code>ParallelCollectionPartition</code>, differs from the usual partition in that it contains a reference to the actual data, rather than just being a wrapper around the ID. From this, the following class signature follows:</p>
+        <pre><code class="scala">class ParallelCollectionPartition[T](val rddId: Int, partitionId: Int, values: Seq[T]) extends Partition</code></pre>
+        
+        <p>To compute a partition, all that is needed is to convert its <code>values</code> to an iterator:</p>
+        <pre><code class="scala">override def compute(p: Partition): Iterator[T] = p.asInstanceOf[ParallelCollectionPartition[T]].iterator</code></pre>
 
         <h3>Applying transformations</h3>
         
-        <p>When a transformation is applied to an RDD, a new RDD will be returned rather than modifying the original one, respecting immutability. Nothing is computed yet, but the new RDD has the necessary information (e.g. function for a mapping) to compute its own data by transforming the data of its parent. This is accomplished by implementing the <code>getPartitions</code> and <code>compute</code> methods, and optionally <code>getDependencies</code> (by default, the dependencies are passed in the constructor). To illustrate, I will explain some transformations that are available.</p>
+        <p>When a transformation is applied to an RDD, a new RDD will be returned rather than modifying the original one to keep them immutable. Nothing is computed yet, but the new RDD has the necessary information (e.g. function for a mapping) to compute its own data by transforming the data of its parent. This is accomplished by implementing the <code>getPartitions</code> and <code>compute</code> methods, and optionally <code>getDependencies</code> (by default, the dependencies are passed in the constructor). To illustrate, I will explain some transformations that are available.</p>
 
         <h4>Transformations available on all RDDs</h4>
 
         <h5>Union</h5>
+        <p>A union is defined as merging multiple datasets into one. Hence, no transformations are needed on the partitions. The resulting RDD only needs to keep a reference to all of the merged parent RDDs.</p>
+        <figure>
+            <img src="img/union.svg" alt="">
+            <figcaption>For a union, partitions from multiple RDDs are merged into a single RDD</figcaption>
+        </figure>
+        <p>For the method defined on RDDs, the parents of the result will be the argument of the method call, and the RDD on which the method is called.</p>
         <pre><code class="scala">def union(other: RDD[T]): RDD[T] = new UnionRDD(context, Seq(this, other))</code></pre>
         <p>As you can see, this just creates a new <code>UnionRDD</code> instance and passes both RDDs to it. This class accepts a sequence of RDDs with the same type.</p>
-        <p>Since its partitions are simply the union of the parents' partitions, the <code>getPartitions</code> method is implemented as such:</p>
+        <p>Its partitions are simply the union of all the parents' partitions. In order obtain these, we can merge all parent partitions into a single array, and the <code>getPartitions</code> method is implemented as such:</p>
         <pre><code class="scala">override def getPartitions: Array[Partition] = {
   val array = new Array[Partition](rdds.map(_.partitions.length).sum)
   var pos = 0
@@ -178,7 +198,7 @@ override def compute(p: Partition): Iterator[String] = {
   }
   array
 }</code></pre>
-        <p>Each parent partition is assigned to a <code>UnionPartition</code>. The parent partition and the parent itself are stored for use in the <code>compute</code> method:</p>
+        <p>Each parent partition is assigned to a <code>UnionPartition</code>, and a unique ID is assigned to each partition. The parent partition and the parent itself are stored for use in the <code>compute</code> method, where the corresponding parent partition is retrieved through the information stored in the <code>UnionPartition</code>:</p>
         <pre><code class="scala">override def compute(p: Partition): Iterator[T] = {
   val partition = p.asInstanceOf[UnionPartition[T]]
   partition.parent.iterator(partition.parentPartition)
@@ -186,18 +206,18 @@ override def compute(p: Partition): Iterator[String] = {
         <p>Because a union does not change the data in any way, computing a partition is delegated to the corresponding parent.</p>
 
         <h5>Map and filter</h5>
+        <p>The <em>map</em> and <em>filter</em> are common operations, available on most implementations of datasets. Since they yield similar results (a new dataset), a single RDD class can be used to wrap either of them. This class, <code>MappedRDD</code>, should accept a function that takes and returns an <code>Iterator</code> (because that's what Spark uses to represent partitions). The function passed to the <code>map</code> or <code>filter</code> method can then be used in the function to be passed to the new RDD's constructor:</p>
         <pre><code class="scala">def map[U](f: T => U): RDD[U] = new MappedRDD[T,U](this, _.map(f))</code></pre>
         <pre><code class="scala">def filter(f: T => Boolean): RDD[T] = new MappedRDD[T,T](this, _.filter(f))</code></pre>
-        <p>A <code>MappedRDD</code> requires a function that transforms an <code>Iterator</code> of type <code>T</code> to one of type <code>U</code>. The reason for this is to allow for a single type of RDD for both <code>map</code> and <code>filter</code>, among others. This function is obtained by passing the provided function to the iterator's <code>map</code> or <code>filter</code> method.</p>
-        <p>A <code>MappedRDD</code> has the same partition as its parent. To compute a partition, it applies its function to the computed <code>Iterator</code> of its parent.</p>
+        <p>A <code>MappedRDD</code> has the same partition as its parent. To compute a partition, it applies its function to the computed <code>Iterator</code> of its parent:</p>
+        <pre><code class="scala">override def compute(p: Partition): Iterator[U] = f(parent.iterator(p))</code></pre>
 
         <h4>Transformations available on key-value RDDs</h4>
-        <p>Some transformations are only available on RDDs that have key-value pairs. This is achieved by adding an implicit conversion to a <code>PairRDD</code> on the <code>RDD</code> object:</p>
+        <p>Some transformations should only be available on RDDs of key-value pairs (i.e. datasets consisting of tuples with 2 elements). The reason is that they would not make sense for datasets of just values; they operate on keys as well as values. These transformations are placed within the <code>PairRDD</code> class, which wraps the RDD, and an implicit conversion is added to the <code>RDD</code> object:</p>
         <pre><code class="scala">implicit def rddToPairRdd[K: ClassTag, V: ClassTag](rdd: RDD[(K,V)]): PairRDD[K,V] = new PairRDD(rdd)</code></pre>
-        <p>The <code>PairRDD</code> class wraps around the RDD to provide the additional transformations and actions.</p>
-        <p>An important part of key-value RDD functionality is the <code>Aggregator</code> class. It uses three functions:</p>
+        <p>An important part of key-value RDD functionality is merging multiple elements into one, and converting them to other types. For this, we start by defining the <code>Aggregator</code> class. It stores three functions:</p>
         <pre><code class="scala">class Aggregator[K,V,C] (createCombiner: V => C, mergeValue: (C,V) => C, mergeCombiners: (C,C) => C)</code></pre>
-        <p>These functions are used in two methods. First, there is <code>combineValuesByKey</code>, which turns an iterator with <code>(K,V)</code> pairs into one with <code>(K,C)</code> pairs:</p>
+        <p>These functions are used in two methods. First, there is <code>combineValuesByKey</code>. Here, we want to combine all values of type <code>V</code> with the same key in a new type <code>C</code>, resulting in a new set of key-value pairs, where each key appears only once. This can be achieved using the functions of the aggregator:</p>
         <pre><code class="scala">def combineValuesByKey(iter: Iterator[(K,V)]): Iterator[(K,C)] = {
   val combiners: mutable.HashMap[K,C] = new mutable.HashMap()
   iter.foreach(pair => {
@@ -211,10 +231,36 @@ override def compute(p: Partition): Iterator[String] = {
   combiners.toIterator
 }</code></pre>
         <p>For each key, the first value of type <code>C</code> is obtained using the <code>createCombiner</code> function, then subsequent values for that key are merged into the result using the <code>mergeValue</code> function.</p>
-        <p>The other aggregate method is <code>combineCombinersByKey</code>. It is similar to <code>combineValuesByKey</code>, but accepts an iterator that already contains <code>(K,C)</code> pairs, so <code>mergeCombiners</code> is used instead of <code>mergeValue</code>, and <code>createCombiner</code> is left out.</p>
+        <p>The other aggregate method is <code>combineCombinersByKey</code>. It is similar to <code>combineValuesByKey</code>, but accepts an iterator that already contains <code>(K,C)</code> pairs, so <code>mergeCombiners</code> is used instead of <code>mergeValue</code>, and <code>createCombiner</code> is left out. Basically, multiple values with the same key are reduced into a single value.</p>
+
+        <p>To integrate the aggregator into an RDD, first note that the data needs to be repartitioned because a single node should have access to all elements with the same key. We introduce a new RDD type <code>ShuffledRDD</code>, which indicates that the parent partitions will be shuffled. In addition to a partitioner, this class also contains the aggregator:</p>
+        <pre><code class="scala">class ShuffledRDD[K,V,C](parent: RDD[(K,V)], part: Partitioner, aggregator: Option[Aggregator[K,V,C]] = None) extends RDD[(K,C)](parent.context, Nil)</code></pre>
+        <p>When computing a partition of this RDD, we first need to compute the entire dataset of its parent. The reason for this is that it has a wide dependency on its parent; elements required for computing the partition may come from any of the parent's partition. To achieve this, a <code>parentData</code> method is defined:</p>
+        <pre><code class="scala">private var parentDataList: List[(K,V)] = null
+def parentData: Iterator[(K,V)] = {
+  if (parentDataList == null)
+    parentDataList = context.runJob(parent, (iterator: Iterator[(K,V)]) => iterator.toList).reduce(_ ++ _)
+  parentDataList.toIterator
+}</code></pre>
+        <p>The parent's dataset is computed once, then stored as a single list in <code>parentDataList</code>. When needed, this list is converted to an iterator.</p>
+        <p>To compute a partition, only the elements that should be in said partition are retrieved from the parent data, which can be achieved by using the partitioner. Now the aggregator (if defined) can be applied to the retrieved iterator. Finally, the result is sorted if a key ordering is set on the <code>ShuffledRDD</code>:</p>
+        <pre><code class="scala">override def compute(p: Partition): Iterator[(K,C)] = {
+  val theIterator = parentData.filter(el => part.getPartition(el._1) == p.index)
+  val aggregated = aggregator match {
+    case Some(aggr) => aggr.combineValuesByKey(theIterator)
+    case None => theIterator.asInstanceOf[Iterator[(K,C)]]
+  }
+  keyOrdering match {
+    case Some(order: Ordering[K]) =>
+      aggregated.toArray.sortBy(_._1)(order).toIterator
+    case None =>
+      aggregated
+  }
+}</code></pre>
+        <p>Having an optional <code>Aggregator</code> is useful when an RDD needs to be repartitioned without combining values.</p>
 
         <h5>Combine by key</h5>
-        <p>The <code>combineByKey</code> method is used as a base for several other methods of key-value RDDs. It is implemented as follows:</p>
+        <p>The <code>combineByKey</code> method is available as a base for the other methods of key-value RDDs. This method will use provided functions to instantiate an RDD and add the appropriate <code>Aggregator</code> to it. We also want to have elements with the same key on the same partition (we want all values per key to be combined, not spread across partitions), so we also require a partitioner to add to the RDD:</p>
         <pre><code class="scala">def combineByKey[C](createCombiner: V => C,
                     mergeValue: (C, V) => C,
                     mergeCombiners: (C, C) => C,
@@ -226,25 +272,29 @@ override def compute(p: Partition): Iterator[String] = {
   else
     new ShuffledRDD(rdd, partitioner, Some(aggregator))
 }</code></pre>
-        <p>The provided functions are wrapped in an <code>Aggregator</code>. If the RDD already contains a partitioner, the aggregator is used to map the combine function over each partition. Otherwise, a <code>ShuffledRDD</code> (explained in further detail in the Partitioners section) is used to repartition the RDD using the provided partitioner, resulting in a wide dependency.</p>
-        <p>The result of the method is an RDD that is partitioned according to the provided partitioner, and values for each separate key have been combined into a single value.</p>
+        <p>The provided functions are wrapped in an <code>Aggregator</code>. If the RDD already is partitioned by the provided partitioner (meaning each key is on one partition only), we just need to map the combine function over each partition. Otherwise, a <code>ShuffledRDD</code> is used to repartition the RDD using the provided partitioner, resulting in a wide dependency.</p>
+        <p>The end result of the method is an RDD that is partitioned according to the provided partitioner, and values for each separate key have been combined into a single value using a provided function.</p>
         
         <h5>Reduce by key</h5>
+        <p>The result of <em>reduce by key</em> should be an RDD where values for each key are reduced into a single value using the provided reduce function.</p>
         <pre><code class="scala">def reduceByKey(f: (V,V) => V, numPartitions: Int): RDD[(K,V)] =
   combineByKey(identity, f, f, new HashPartitioner(numPartitions))</code></pre>
-        <p>This method uses <code>combineByKey</code> to reduce the group of values for each key into a single value using the provided function <code>f</code>. Since the resulting RDD has the same type of values as this RDD, there is no need to transform a value into a combiner, so the identity function is used. A <code>HashPartitioner</code> (further explained in the Partitioners section) is used by default.</p>
+        <p>This method uses the provided function <code>f</code> for both merge functions in <code>combineByKey</code>. This is possible because the resulting RDD has the same type of values as this RDD. For the same reason there is no need to transform a value into a combiner, so the identity function is used as first argument. A <code>HashPartitioner</code> (further explained in the Partitioners section) is used as a default, but an overloaded method exists to provide a different partitioner.</p>
 
         <h5>Aggregate by key</h5>
+        <p>Contrary to reducing, aggregating a set of values can result in a value of a different type. This result is obtained by starting with a <em>zero value</em> of the output type, and merging each input value into the output using a given function. The result is obtained after all values have been merged.</p>
         <pre><code class="scala">def aggregateByKey[C](zeroValue: C, partitioner: Partitioner)(seqOp: (C, V) => C, comboOp: (C, C) => C): RDD[(K,C)] =
   combineByKey(v => seqOp(zeroValue, v), seqOp, comboOp, partitioner)</code></pre>    
-        <p>This method is similar to <code>reduceByKey</code>, but it does not need a function to transform a value of type <code>V</code> into one of type <code>C</code>. Instead, it takes a "zero value" of type <code>C</code>, into which a given value can be merged using the provided merge function.</p>
+        <p>The two provided functions can be passed directly to <code>combineByKey</code>. For creating an initial output value from the first input value, we can use the provided zero value and merge the input into it using the merge function.</p>
 
         <h5>Group by key</h5>
+        <p>This method is used to again obtain a set where each key appears only once, but this time, each key's value is a sequence of all values associated with that key.</p>
         <pre><code class="scala">def groupByKey(numPartitions: Int): RDD[(K,Seq[V])] =
   combineByKey(v => Seq(v), (seq, v) => v +: seq, (seq1, seq2) => seq1 ++ seq2, new HashPartitioner(numPartitions))</code></pre>
-        <p>Here, the values per key are combined into a sequence. Hence, in the resulting RDD, each key will appear only once. A single value is turned into a sequence with just one element, while a value can just be added to an existing sequence to merge it.</p>
+        <p>A single value is turned into a sequence with just one element, while a value can just be added to an existing sequence to merge it. Two sequences are merged by obtaining their union.</p>
 
         <h5>Partition by</h5>
+        <p>If a dataset should be partitioned without combining values per key, the <code>partitionBy</code> method can be used. The result is an RDD with shuffled partitions in accordance with the provided partitioner.</p>
         <pre><code class="scala">def partitionBy(partitioner: Partitioner): RDD[(K,V)] =
   if (rdd.partitioner contains partitioner)
     rdd
@@ -276,7 +326,7 @@ override def compute(p: Partition): Iterator[String] = {
         <p>Each iterator is transformed to its size, of which the sum is taken.</p>
 
         <h4>Reduce</h4>
-        <p>Takes a function for reducing two elements to one, and returns a single element.</p>
+        <p>Takes a function for reducing two elements to one. The result is a single element, obtained by merging all elements one by one into the first.</p>
         <pre><code class="scala">def reduce(f: (T,T) => T): T = {
   var result: Option[T] = None
 
@@ -296,11 +346,11 @@ override def compute(p: Partition): Iterator[String] = {
 
   result.getOrElse(throw new UnsupportedOperationException("empty dataset"))
 }</code></pre>
-        <p>As transformation, each partition is reduced to a single value using the provided reduce function on the iterator. Instead of obtaining an array, a custom result handler is defined, which will merge each reduced iterator into an existing variable, again using the reduce function.</p>
+        <p>As transformation, each partition is reduced to a single value using the reduce method on the iterator and passing the provided function. Instead of obtaining an array, a custom result handler is defined, which will merge each reduced iterator into an existing variable, again using the provided function.</p>
 
 
-        <h4>Take</h4>
-        <p>Takes an integer <code>n</code>, and returns the first <code>n</code> results from the dataset.</p>
+<!--         <h4>Take</h4>
+        <p>Takes an integer <code>n</code>, and returns the first <code>n</code> results from the dataset.</p> -->
         <!-- TODO: implement as function for runJob -->
         <!-- <p>An extra function is defined to allow for recursion and better readability. Starting with an empty sequence, </p> -->
 

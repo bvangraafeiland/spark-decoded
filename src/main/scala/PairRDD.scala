@@ -50,16 +50,9 @@ class PairRDD[K: ClassTag, V: ClassTag](rdd: RDD[(K,V)]) {
   def lookup(key: K): Seq[V] =
     rdd.partitioner match {
       case Some(p) =>
-        val index = p.getPartition(key)
-        val process = (it: Iterator[(K, V)]) => {
-          val buf = new ArrayBuffer[V]
-          for (pair <- it if pair._1 == key) {
-            buf += pair._2
-          }
-          buf
-        } : Seq[V]
-        val res = rdd.context.runJob(rdd, process, Array(index))
-        res(0)
+        val process = (it: Iterator[(K, V)]) =>
+          it.filter(_._1 == key).map(_._2).toSeq
+        rdd.context.runJob(rdd, process, Array(p.getPartition(key))).head
       case None =>
         rdd.filter(_._1 == key).map(_._2).collect()
     }

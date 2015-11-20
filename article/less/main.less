@@ -17,9 +17,14 @@
 }
 
 section {
+    counter-increment: sections;
+    counter-reset: figures;
     h1 {
         border-bottom: 1px solid;
         padding-bottom: 5px;
+        &:before {
+            content: counter(sections) '. ';
+        }
     }
 }
 main:extend(.container, .text-justify) {
@@ -36,7 +41,7 @@ figure {
     figcaption {
         margin-top: 5px;
         &:before {
-            content: 'Fig. ' counter(figures) ': ';
+            content: 'Fig. ' counter(sections) '.' counter(figures) ': ';
         }
     }
 }
