@@ -4,26 +4,23 @@ import scala.reflect.ClassTag
 /**
  * Created by Bastiaan on 01-07-2015.
  */
-abstract class Partitioner {
+abstract class Partitioner(partitionCount: Int) {
 
   def getPartition(key: Any): Int
 
-  def numPartitions: Int
+  def numPartitions: Int = partitionCount
 }
 
 object Partitioner {
-
   val defaultPartitioner = new HashPartitioner(SparkContext.defaultNumPartitions)
 }
 
-class HashPartitioner(partitionCount: Int) extends Partitioner {
+class HashPartitioner(partitionCount: Int) extends Partitioner(partitionCount) {
 
   override def getPartition(key: Any): Int = key match {
     case null => 0
     case _ => nonNegativeMod(key.hashCode, partitionCount)
   }
-
-  override def numPartitions: Int = partitionCount
 
   override def equals(obj: scala.Any): Boolean = obj match {
     case h: HashPartitioner => h.numPartitions == partitionCount
@@ -47,7 +44,7 @@ class HashPartitioner(partitionCount: Int) extends Partitioner {
  *
  * Note: takes the entire contents of the RDD, rather than just a sample.
  */
-class RangePartitioner[K: Ordering: ClassTag, V](partitionCount: Int, rdd: RDD[(K,V)], val ascending: Boolean = true) extends Partitioner {
+class RangePartitioner[K: Ordering: ClassTag, V](partitionCount: Int, rdd: RDD[(K,V)], val ascending: Boolean = true) extends Partitioner(partitionCount) {
 
   private val rangeBounds: Array[K] = {
     if (partitionCount <= 1)
@@ -96,7 +93,6 @@ class RangePartitioner[K: Ordering: ClassTag, V](partitionCount: Int, rdd: RDD[(
   private def determineBounds(candidates: ArrayBuffer[(K, Float)], partitions: Int): Array[K] = {
     val ordering = implicitly[Ordering[K]]
     val ordered = candidates.sortBy(_._1)
-    val numCandidates = ordered.size
     val sumWeights = ordered.map(_._2.toDouble).sum
     val step = sumWeights / partitions
     var cumWeight = 0.0
@@ -105,7 +101,7 @@ class RangePartitioner[K: Ordering: ClassTag, V](partitionCount: Int, rdd: RDD[(
     var i = 0
     var j = 0
     var previousBound = Option.empty[K]
-    while ((i < numCandidates) && (j < partitions - 1)) {
+    while ((i < ordered.size) && (j < partitions - 1)) {
       val (key, weight) = ordered(i)
       cumWeight += weight
       if (cumWeight > target) {
@@ -134,8 +130,6 @@ class RangePartitioner[K: Ordering: ClassTag, V](partitionCount: Int, rdd: RDD[(
 
     partition
   }
-
-  override def numPartitions: Int = partitionCount
 
   override def equals(other: Any): Boolean = other match {
     case r: RangePartitioner[_, _] =>

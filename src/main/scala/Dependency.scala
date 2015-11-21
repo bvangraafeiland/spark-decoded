@@ -6,11 +6,6 @@ abstract class Dependency[T] {
 }
 
 abstract class NarrowDependency[T](_rdd: RDD[T]) extends Dependency[T] {
-  /**
-   * Get the parent partitions for a child partition.
-   * @param partitionId a partition of the child RDD
-   * @return the partitions of the parent RDD that the child partition depends upon
-   */
   def getParents(partitionId: Int): Seq[Int]
 
   override def rdd: RDD[T] = _rdd
@@ -20,16 +15,23 @@ class OneToOneDependency[T](rdd: RDD[T]) extends NarrowDependency[T](rdd) {
   override def getParents(partitionId: Int): List[Int] = List(partitionId)
 }
 
-class RangeDependency[T](rdd: RDD[T], inStart: Int, outStart: Int, length: Int) extends NarrowDependency[T](rdd) {
-
+class RangeDependency[T](rdd: RDD[T], parentStartIndex: Int, childStartIndex: Int, length: Int) extends NarrowDependency[T](rdd) {
   override def getParents(partitionId: Int): List[Int] =
-    if (partitionId >= outStart && partitionId < outStart + length)
-      List(partitionId - outStart + inStart)
-     else
+    if (partitionIsWithinRange(partitionId))
+      List(getParentPartitionId(partitionId))
+    else
       Nil
+
+  private def getParentPartitionId(partitionId: Int): Int = partitionId - childStartIndex + parentStartIndex
+  private def partitionIsWithinRange(partitionId: Int): Boolean = partitionId >= childStartIndex && partitionId < childStartIndex + length
 }
 
-class ShuffleDependency[K,V,C](_rdd: RDD[(K,V)], val partitioner: Partitioner) extends Dependency[(K,V)] {
+class ShuffleDependency[K,V,C](
+    _rdd: RDD[(K,V)],
+    val partitioner: Partitioner,
+    val keyOrdering: Option[Ordering[K]] = None,
+    val aggregator: Option[Aggregator[K, V, C]] = None)
+  extends Dependency[(K,V)] {
 
   override def rdd: RDD[(K, V)] = _rdd
 }

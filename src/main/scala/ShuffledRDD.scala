@@ -36,7 +36,7 @@ class ShuffledRDD[K,V,C](parent: RDD[(K,V)], part: Partitioner, aggregator: Opti
 
   override val partitioner: Option[Partitioner] = Some(part)
 
-  override def getDependencies: Seq[Dependency[_]] = List(new ShuffleDependency(parent, part))
+  override def getDependencies: Seq[Dependency[_]] = List(new ShuffleDependency(parent, part, keyOrdering, aggregator))
 }
 
 class ShuffledRDDPartition(ind: Int) extends Partition {
