@@ -410,10 +410,162 @@ Await.ready(computePartitions, Duration.Inf)</code></pre>
   Await.ready(computePartitions, Duration.Inf)
 }</code></pre>
         <h2>Dependencies</h2>
-        <!-- todo -->
-        <h2>Partitioners</h2>
-        <!-- todo -->
+        <p>RDD classes other than <code>FileRDD</code> and <code>ParallelCollectionRDD</code> take other RDDs in their constructor that they depend upon. Hence, they have a reference to their parents internally, but in order to allow those dependencies to be used outside the RDDs themselves, RDDs should have a method to get a list of their dependencies as described in section <a href="#concepts">2</a>. We could just return a list of the parent RDDs themselves, but we want more flexibility than that. For example, we want to represent narrow and wide dependencies separately. To achieve this, we'll wrap dependencies in a <code>Dependency</code> class. This is the most basic abstract class, just containing a reference to the parent RDD:</p>
+        <pre><code class="scala">abstract class Dependency[T] {
+  def rdd: RDD[T]
+}</code></pre>
+        <p>It is up to each subclass how the parent RDD should be retrieved.</p>
 
+        <h3>Narrow dependencies</h3>
+        <p>Following the definition of a narrow dependency, each parent partition can only be required by a single child partition. However, that's not necessarily the case the other way around; a single child could depend upon multiple parent partitions. Although this is not the case in any of the dependencies we define here, we'll stay open to the possibility. To this end, we make the class abstract and require the method to return a list of partitions:</p>
+        <pre><code class="scala">abstract class NarrowDependency[T](_rdd: RDD[T]) extends Dependency[T] {
+  def getParents(partitionId: Int): Seq[Int]
+
+  override def rdd: RDD[T] = _rdd
+}</code></pre>
+        <p>The first type of narrow dependency is the most simple one, where parent and child both have the same amount of partitions. Each partition of the parent is transformed in some way (e.g. map, filter) to obtain the same partition of the child, as depicted in figure 2.6. This means that all partitions have a one-to-one dependency. As a result, the partition IDs for parent and child can be the same:</p>
+        <pre><code class="scala">class OneToOneDependency[T](rdd: RDD[T]) extends NarrowDependency[T](rdd) {
+  override def getParents(partitionId: Int): List[Int] = List(partitionId)
+}</code></pre>
+        <p>As mentioned in the implementation section of RDDs, the <code>OneToOneDependency</code> is used by default on RDDs that take a single other RDD in their constructor. This usually works fine, except when performing a <em>union</em> transformation; the child RDD has multiple parents, so it can't use their IDs directly. Instead, we want to "stack" the parents' partitions in the child RDD, as visualized in figure 3.1. This means for each dependency, the parent partitions are a "range" of partitions of the child, so <code>RangeDependency</code> makes a good name. To obtain the ID of a parent partition for a given child partition ID, we simply subtract the starting index of the range:</p>
+        <pre><code class="scala">class RangeDependency[T](rdd: RDD[T], parentStartIndex: Int, childStartIndex: Int, length: Int) extends NarrowDependency[T](rdd) {
+  override def getParents(partitionId: Int): List[Int] =
+    if (partitionIsWithinRange(partitionId))
+      List(getParentPartitionId(partitionId))
+    else
+      Nil
+
+  private def getParentPartitionId(partitionId: Int): Int = partitionId - childStartIndex + parentStartIndex
+  private def partitionIsWithinRange(partitionId: Int): Boolean = partitionId >= childStartIndex &amp;&amp; partitionId &lt; childStartIndex + length
+}</code></pre>
+        <p>Note that the constructor also takes a start index for the parent RDD. In the case of union, each range dependency represents the entire set of partitions of the parent. However, to keep the dependency more general, we also want to be able to specify a subset of the parent partitions. This results in a range of parent partitions being dependencies for a range of child partitions:</p>
+        <figure>
+            <img src="img/range_dependency.svg" alt="">
+            <figcaption>A range dependency where the not all parent partitions are in the range.</figcaption>
+        </figure>
+        <p>Going back to the union example, the dependencies there consist of a <code>RangeDependency</code> for each parent RDD. Because the full list of partitions for each parent is used, the start index can be 0 at all times:</p>
+        <pre><code class="scala">override def getDependencies: Seq[Dependency[_]] = {
+  val deps = new ArrayBuffer[Dependency[_]]
+  var pos = 0
+  for (rdd &lt;- rdds) {
+    deps += new RangeDependency(rdd, 0, pos, rdd.partitions.length)
+    pos += rdd.partitions.length
+  }
+  deps
+}</code></pre>
+        <h3>Wide dependencies</h3>
+        <p>When a wide dependency is created, a partitioner is used. In addition, the data may be aggregated or ordered by keys. These three elements are stored on the dependency in addition to the parent RDD, because they define the dependency.</p>
+        <pre><code class="scala">class ShuffleDependency[K,V,C](
+    _rdd: RDD[(K,V)],
+    val partitioner: Partitioner,
+    val keyOrdering: Option[Ordering[K]] = None,
+    val aggregator: Option[Aggregator[K, V, C]] = None)
+  extends Dependency[(K,V)] {
+
+  override def rdd: RDD[(K, V)] = _rdd
+}</code></pre>
+        <p>A <code>ShuffledRDD</code> can simply pass its data to a <code>ShuffleDependency</code>:</p>
+        <pre><code class="scala">override def getDependencies: Seq[Dependency[_]] = List(new ShuffleDependency(parent, part, keyOrdering, aggregator))</code></pre>
+
+        <h2>Partitioners</h2>
+        <p>In section <a href="#concepts">2</a>, it is explained that a partitioner transforms a key to a partition ID. In order to return a valid ID, it should know how many partitions there are. From these observations, we can derive an abstract base class:</p>
+        <pre><code class="scala">abstract class Partitioner(partitionCount: Int) {
+
+  def getPartition(key: Any): Int
+
+  def numPartitions: Int = partitionCount
+}</code></pre>
+        <p>By implementing a subclass, users can define their own partitioners. However, Spark also provides two partitioners that should suffice for most use cases.</p>
+
+        <h3>Partitioning based on hash codes</h3>
+        <p>Since Scala is based on Java, objects always have a method available to compute their hash code as an integer. This is used in equality checks, but also in <code>HashMap</code> and <code>HashSet</code> for example. The idea is that the hash code represents the object's internals; two objects with the same internals will have the same hash code. Two identical hash codes doesn't necessarily mean that the internals are the same though, because an integer can only represent a finite amount of numbers.</p>
+        <p>The <code>HashPartitioner</code> is based on this idea. It takes its input's hash code modulo the amount of partitions to yield the partition ID. This is a simple and effective, yet efficient way of partitioning.</p>
+        <pre><code class="scala">override def getPartition(key: Any): Int = key match {
+  case null => 0
+  case _ => nonNegativeMod(key.hashCode, partitionCount)
+}
+private def nonNegativeMod(x: Int, mod: Int): Int = {
+  val rawMod = x % mod
+  rawMod + (if (rawMod &lt; 0) mod else 0)
+}</code></pre>
+
+        <h3>Balanced partitions</h3>
+        <p>While the <code>HashPartitioner</code> is efficient, it's not without drawbacks. The resulting partitions are not guaranteed to be equally sized, especially in smaller data sets. In that case, it's not even unlikely for some partitions to be empty. In order to solve this problem at the expense of efficiency and simplicity, Spark also provides a <code>RangePartitioner</code>. In Spark, this partitioner takes a sample of each parent partition's data and chooses boundaries so that the same amount of elements are between each pair of boundaries. The indices of these boundaries are obtained by dividing the total amount of sampled elements by the desired number of partitions on the child RDD. Note that the keys need to be sortable, and this way of partitioning does not guarantee equally sized child partitions. In case of duplicate keys on small datasets, imbalance can still occur.</p>
+        <p>To illustrate, consider this example. The desired number of child partitions is 5, the parent containing 4 partitions is sampled and sorted, yielding 100 elements where the keys are integers. By division, we obtain 20 elements per child partition. This means that the boundaries are at K<sub>19</sub>, K<sub>39</sub>, K<sub>59</sub> and K<sub>79</sub>. Child partitions will be assigned according to those boundaries.</p>
+        <figure>
+            <img src="img/range_partitioner.svg" alt="">
+            <figcaption>Samples from the parent partition are merged and sorted. Then, the boundaries for child partitions are established.</figcaption>
+        </figure>
+        <p>In this example, the parent partitions are assumed to be equally sized. In reality, weights are assigned to each key in the sample, equal to 1 divided by the total amount of keys from the same partition. This is done so that each parent partition has the same impact on the values of the boundaries.</p>
+        <p>In my own implementation, I decided to keep things a bit simpler, and take the entire parent dataset, rather than a sample. This reduces code complexity while still getting the point across. Let's start from the outside in. Assuming range bounds have been established, search for the first partition whose bound is not smaller than the given key:</p>
+        <pre><code class="scala">override def getPartition(key: Any): Int = {
+  val k = key.asInstanceOf[K]
+  var partition = 0
+  val ordering = implicitly(Ordering[K])
+
+  while (partition &lt; rangeBounds.length &amp;&amp; ordering.gt(k, rangeBounds(partition))) {
+    partition += 1
+  }
+  partition
+}</code></pre>
+        <p>To determine the bounds, we first need to obtain the weight for each key, represented as key-value pair with weight as the value, and store these pairs in a buffer. The <code>sketch</code> method takes care of sampling in Spark, but here it just collects the contents of all partitions.</p>
+        <pre><code class="scala">private val rangeBounds: Array[K] = {
+  if (partitionCount &lt;= 1)
+    Array.empty
+  else {
+    val (numItems, sketched) = sketch(rdd.map(_._1))
+    if (numItems == 0)
+      Array.empty
+    else {
+      val candidates = ArrayBuffer.empty[(K,Float)]
+      sketched.foreach { case (n, keys) =>
+        val weight: Float = 1 / n
+        for (key &lt;- keys)
+          candidates += ((key, weight))
+      }
+      determineBounds(candidates, partitionCount)
+    }
+  }
+}</code></pre>
+        <p>With the weights available, we can determine the range bounds. To do so, we calculate the desired weight per partition, then try to choose the bounds in such a way that the actual weight per partition is close to the desired weight.</p>
+        <pre><code class="scala">private def determineBounds(candidates: ArrayBuffer[(K, Float)], partitions: Int): Array[K] = {
+  val ordering = implicitly[Ordering[K]]
+  val ordered = candidates.sortBy(_._1)
+  val sumWeights = ordered.map(_._2.toDouble).sum
+  val step = sumWeights / partitions
+  var cumWeight = 0.0
+  var target = step
+  val bounds = ArrayBuffer.empty[K]
+  var i = 0
+  var j = 0
+  var previousBound = Option.empty[K]
+  while ((i &lt; ordered.size) &amp;&amp; (j &lt; partitions - 1)) {
+    val (key, weight) = ordered(i)
+    cumWeight += weight
+    if (cumWeight > target) {
+      // Skip duplicate values.
+      if (previousBound.isEmpty || ordering.gt(key, previousBound.get)) {
+        bounds += key
+        target += step
+        j += 1
+        previousBound = Some(key)
+      }
+    }
+    i += 1
+  }
+  bounds.toArray
+}</code></pre>
+        <p>Although this snippet may seem complicated at first, the relevant part happens within the while-loop:</p>
+        <ul>
+            <li>The cumulative weight is increased by each key's individual weight, until the target weight is reached (which is initially set to the desired weight per partition).</li>
+            <li>To prevent having the same key on multiple bounds, the key for a new bound is required to be greated than the key of the previous bound.</li>
+            <li>If the previous steps are satisfied, the current key can be assigned to a new range bound and the target can be increased by another step.</li>
+        </ul>
+        <p>Note that when a partition grows larger than intended because of this, the next partition will be smaller in size because the surplus weight has already been added to the cumulative weight. The average weight per partition will not change.</p>
+    </section>
+    <section id="conclusion">
+        <h1>Conclusion</h1>
+        <p>After reading this article, you should be familiar with the core concepts of Spark: RDDs, partitions, partitioners, and dependencies. You should also understand what the benefits of RDDs over other distributed models are, and why they have better performance. In addition, you know how the most important parts work under the hood, how distributed functionality and fault tolerance is implemented, and are able to create your own custom extensions to the framework. Most importantly, you know what kind of transformations and actions Spark can perform, and apply them to your own programs.</p>
     </section>
 </main>
 <!-- Include all compiled plugins (below), or include individual files as needed -->
